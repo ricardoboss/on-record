@@ -79,6 +79,24 @@ The site is hosted on Cloudflare at [mylisteningrecord.com](https://mylisteningr
 
 The build emits `dist/_headers`, which Cloudflare applies as response headers: the Content Security Policy plus HSTS, framing and caching rules. The build uses relative asset paths, so `dist/` also works on any other static host, where the CSP meta tag in the page still applies.
 
+### Docker
+
+Build the app on the host or in CI, then package `dist/`:
+
+```bash
+npm ci --ignore-scripts
+# Optional: refresh the catalogue before building. The committed snapshot works offline.
+npm run catalogue:genres -- 5
+npm run build
+docker build -t on-record .
+docker run --rm -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop=ALL --security-opt=no-new-privileges on-record
+```
+
+Open `http://localhost:8080`. The image contains the prebuilt site and an unprivileged Alpine NGINX server. It runs no npm commands and retrieves no genre data. A missing `dist/` or `dist/nginx-headers.conf` makes the image build fail; rebuild the app first. The Docker context excludes source files, listening exports and dependencies.
+
+Hashed assets use immutable one-year caching; HTML and other files require revalidation. NGINX compresses text responses and serves the build's security headers, including CSP. Both Cloudflare's `_headers` and Docker's `nginx-headers.conf` are generated from the same header definitions in `vite.config.ts`. Put the container behind a TLS reverse proxy for public hosting.
+
 ## Project structure
 
 ```

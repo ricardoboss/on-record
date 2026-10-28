@@ -1,0 +1,8 @@
+# Only the prebuilt site and server configuration belong in the image context.
+**
+!Dockerfile
+!.dockerignore
+!docker/
+!docker/nginx.conf
+!dist/
+!dist/**

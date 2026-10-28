@@ -28,19 +28,24 @@ const CSP = [
  * The CSP is the same one as the meta tag, plus the directives a meta tag can't carry
  * (frame-ancestors). On hosts that ignore _headers, the meta tag still applies.
  */
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': `${CSP}; frame-ancestors 'none'`,
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=(), interest-cohort=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+}
+
 const HEADERS = `/*
-  Content-Security-Policy: ${CSP}; frame-ancestors 'none'
-  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
-  X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
-  Referrer-Policy: no-referrer
-  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=(), interest-cohort=()
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Resource-Policy: same-origin
+${Object.entries(SECURITY_HEADERS).map(([name, value]) => `  ${name}: ${value}`).join('\n')}
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 `
+
 
 function contentSecurityPolicy(): Plugin {
   return {
@@ -51,6 +56,11 @@ function contentSecurityPolicy(): Plugin {
     ],
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: '_headers', source: HEADERS })
+      // Docker packages an existing dist/, so it gets headers from the same build as the page.
+      const nginxHeaders = Object.entries(SECURITY_HEADERS)
+        .map(([name, value]) => `add_header ${name} ${JSON.stringify(value)} always;`)
+        .join('\n')
+      this.emitFile({ type: 'asset', fileName: 'nginx-headers.conf', source: `${nginxHeaders}\n` })
     },
   }
 }
