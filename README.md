@@ -81,19 +81,17 @@ The build emits `dist/_headers`, which Cloudflare applies as response headers: t
 
 ### Docker
 
-Build the app on the host or in CI, then package `dist/`:
+Build everything with Docker; no local Node.js installation or `dist/` is needed:
 
 ```bash
-npm ci --ignore-scripts
-# Optional: refresh the catalogue before building. The committed snapshot works offline.
-npm run catalogue:genres -- 5
-npm run build
 docker build -t on-record .
 docker run --rm -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop=ALL --security-opt=no-new-privileges on-record
 ```
 
-Open `http://localhost:8080`. The image contains the prebuilt site and an unprivileged Alpine NGINX server. It runs no npm commands and retrieves no genre data. The build context must contain `dist/index.html` and the existing `dist/_headers` output; run `npm run build` before `docker build` (or before `docker compose build`). No Docker-specific build artifact is required. The Docker context excludes source files, listening exports and dependencies.
+Open `http://localhost:8080`. Build stages install locked dependencies, retrieve public genre metadata from MusicBrainz, and compile the app. Only the compiled site and an unprivileged Alpine NGINX server enter the runtime image. The running container makes no metadata requests and contains no Node.js tooling. The build context excludes listening exports, local `dist/`, dependencies and the committed genre snapshot.
+
+Catalogue retrieval defaults to five pages per genre. Set `--build-arg GENRE_PAGES=1` for a smaller catalogue, or increase it for more coverage (up to 100). The catalogue stage is cached separately from source and dependency changes; use `docker build --no-cache -t on-record .` to force a refresh. An uncached build needs network access to the image registry, npm and MusicBrainz. Metadata retrieval failures stop the build rather than silently using stale data.
 
 Hashed assets use immutable one-year caching; HTML and other files require revalidation. NGINX compresses text responses and serves the build's security headers, including CSP. Image packaging translates the global headers in `dist/_headers` into NGINX configuration, keeping `vite.config.ts` as the single source of header definitions. Put the container behind a TLS reverse proxy for public hosting.
 
@@ -143,7 +141,7 @@ My Listening Record is an independent project, not affiliated with, endorsed by 
 
 The dashboard makes no metadata requests. Song tags are imported into the JavaScript bundle at build time; listening histories never enter the catalogue generator. Matching uses artist and title, with album disambiguation when available. Version markers are preserved and conflicting matches remain unknown. There is no artist-level fallback.
 
-To rebuild the catalogue, run `npm run catalogue:genres -- 5` (pages per genre, default 5). This development-only command requests public recordings from MusicBrainz, at no more than one request per 1.1 seconds, and filters positive tags against MusicBrainz's genre list. It writes the catalogue atomically only after all requests succeed. Normal builds and CI use the committed snapshot and need no metadata service. More pages increase size and coverage, but search results are not representative of every listener or the entire music catalogue.
+To rebuild the catalogue, run `npm run catalogue:genres -- 5` (pages per genre, default 5). This development-only command requests public recordings from MusicBrainz, at no more than one request per 1.1 seconds, and filters positive tags against MusicBrainz's genre list. It writes the catalogue atomically only after all requests succeed. Local `npm run build` and CI use the committed snapshot and need no metadata service; Docker builds retrieve their own snapshot. More pages increase size and coverage, but search results are not representative of every listener or the entire music catalogue.
 
 The initial snapshot samples 12 broad genre searches, one page each. Missing songs stay unknown; coverage is shown by listening time and starts. This is a limited catalogue, not comprehensive genre detection. The sample history uses its own seeded, fictional song genres instead of public metadata.
 

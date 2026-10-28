@@ -7,19 +7,35 @@ if (!Number.isInteger(pages) || pages < 1 || pages > 100) throw new Error('Usage
 const endpoint = 'https://musicbrainz.org/ws/2/'
 let lastRequest = 0
 async function request(path, text = false) {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  let failure = 'No response'
+  for (let attempt = 0; attempt < 8; attempt++) {
     await pause(Math.max(0, 1100 - (Date.now() - lastRequest)))
     lastRequest = Date.now()
-    const response = await fetch(endpoint + path, {
-      headers: { 'User-Agent': 'OnRecordCatalogue/1.0 (https://github.com/ricardoboss/on-record)', Accept: 'application/json' },
-      signal: AbortSignal.timeout(30000),
-    })
-    if (response.ok) return text ? response.text() : response.json()
-    if (![429, 500, 502, 503, 504].includes(response.status)) throw new Error(`MusicBrainz: HTTP ${response.status}`)
-    await pause(2000 * (attempt + 1))
+    let response
+    try {
+      response = await fetch(endpoint + path, {
+        headers: { 'User-Agent': 'OnRecordCatalogue/1.0 (https://github.com/ricardoboss/on-record)', Accept: 'application/json' },
+        signal: AbortSignal.timeout(30000),
+      })
+    } catch (error) {
+      failure = error.message
+    }
+    if (response) {
+      if (response.ok) return text ? response.text() : response.json()
+      failure = `HTTP ${response.status}`
+      if (![429, 500, 502, 503, 504].includes(response.status)) throw new Error(`MusicBrainz: ${failure} for ${path}`)
+      await response.body?.cancel()
+    }
+    if (attempt === 7) break
+    const retryAfter = response?.headers.get('retry-after')
+    const retryMs = retryAfter ? (/^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : 0
+    const delay = Math.max(Math.min(30000, 2000 * 2 ** attempt), Number.isFinite(retryMs) ? retryMs : 0)
+    console.warn(`MusicBrainz ${failure}; retrying ${path} in ${Math.ceil(delay / 1000)}s (attempt ${attempt + 2}/8).`)
+    await pause(delay)
   }
-  throw new Error('MusicBrainz remained unavailable; previous catalogue was preserved.')
+  throw new Error(`MusicBrainz remained unavailable (${failure}) for ${path}; no catalogue was written.`)
 }
+
 const allowed = new Set((await request('genre/all?fmt=txt', true)).trim().toLowerCase().split('\n'))
 const seeds = ['rock', 'pop', 'hip hop', 'electronic', 'folk', 'jazz', 'classical', 'metal', 'soul', 'country', 'punk', 'reggae']
 const recordings = new Map()
