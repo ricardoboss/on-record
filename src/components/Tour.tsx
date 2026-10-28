@@ -44,6 +44,10 @@ const TIPS: Record<string, Tip> = {
     try: `${TAP} a dot to find out which song it is.`,
     then: 'Top right: can’t quit them, can’t finish them.',
   },
+  genres: {
+    try: 'Switch to skip rate to see which genres you bail on.',
+    then: 'The line above the bars says how much of your listening has a genre.',
+  },
   constellation: {
     try: `${TAP} a star to light up its scene.`,
     then: COARSE ? 'Pinch to zoom into a cluster.' : 'Use + to zoom into a cluster.',

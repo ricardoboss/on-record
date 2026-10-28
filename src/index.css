@@ -3275,7 +3275,169 @@ th {
   line-height: 1.4;
 }
 
-/* ---------- C1 Constellation ---------- */
+/* ---------- C1 Genres ---------- */
+
+/* Narrow, the name sits over its bar; once there's room, the bar runs between the name and its numbers */
+.genres {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  container-type: inline-size;
+}
+
+.genres__mode {
+  align-self: flex-start;
+}
+
+.genres .guide__takeaway em {
+  font-family: var(--serif);
+}
+
+.genres__coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 62ch;
+}
+
+.genres__coverage p,
+.genres__foot,
+.genres__none {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.genres__coverage b {
+  color: var(--text);
+}
+
+.genres__coverbar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--line-strong);
+}
+
+.genres__coverbar i {
+  flex-basis: 0;
+}
+
+.genres__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genres__row {
+  display: grid;
+  grid-template-areas:
+    'name value'
+    'track track';
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.genres__name {
+  grid-area: name;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genres__value {
+  grid-area: value;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.genres__value b {
+  font-size: 0.95rem;
+}
+
+.genres__value span {
+  color: var(--muted);
+}
+
+.genres__track {
+  grid-area: track;
+  align-self: center;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(244, 241, 234, 0.06);
+}
+
+.genres__track i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+
+@container (min-width: 560px) {
+  .genres__row {
+    grid-template-areas: 'name track value';
+    grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr) 11rem;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .genres__value {
+    justify-content: flex-end;
+  }
+}
+
+/* On a card the ranking fills what's left under the controls, and the row count follows that height */
+.dash.is-cards .genres--card {
+  height: 100%;
+  gap: 12px;
+}
+
+.dash.is-cards .genres--card .genres__coverage {
+  gap: 6px;
+}
+
+.dash.is-cards .genres--card .genres__coverage p,
+.dash.is-cards .genres--card .genres__foot {
+  font-size: 0.82rem;
+}
+
+.dash.is-cards .genres--card .genres__listbox {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dash.is-cards .genres--card .genres__list {
+  height: 100%;
+  justify-content: space-evenly;
+  gap: 0;
+}
+
+.dash.is-cards .genres--card .genres__name {
+  font-size: 1rem;
+}
+
+.dash.is-cards .genres--card .genres__track {
+  height: 6px;
+}
+
+/* ---------- end C1 Genres ---------- */
+
+/* ---------- C2 Constellation ---------- */
 
 .constellation {
   border-radius: 24px;
@@ -3439,7 +3601,7 @@ th {
   font-size: 1.12em;
 }
 
-/* ---------- C2 Pulse ---------- */
+/* ---------- C3 Pulse ---------- */
 
 .pulse {
   padding: 28px 0 16px;
@@ -3590,7 +3752,7 @@ th {
   font-size: 11px;
 }
 
-/* ---------- C3 The Charts ---------- */
+/* ---------- C4 The Charts ---------- */
 
 .charts__controls {
   display: flex;
@@ -6948,7 +7110,7 @@ html.cards-open body {
 
 
 
-/* ---------- Card: C1 Constellation ---------- */
+/* ---------- Card: C2 Constellation ---------- */
 
 /* The sky fills the card and a finger always explores it; the caption under it names what you tapped */
 .dash.is-cards .constellation.is-card {
@@ -7038,12 +7200,12 @@ html.cards-open body {
   font-size: 1.4em;
 }
 
-/* ---------- end card: C1 Constellation ---------- */
+/* ---------- end card: C2 Constellation ---------- */
 
 
 
 
-/* ---------- Card: C2 Pulse ---------- */
+/* ---------- Card: C3 Pulse ---------- */
 
 /* The ridges fill the card; under them, one line on how to read it, or the line you picked */
 .dash.is-cards .pulse.is-card {
@@ -7186,12 +7348,12 @@ html.cards-open body {
   font-weight: 600;
 }
 
-/* ---------- end card: C2 Pulse ---------- */
+/* ---------- end card: C3 Pulse ---------- */
 
 
 
 
-/* ---------- Card: C3 The Charts ---------- */
+/* ---------- Card: C4 The Charts ---------- */
 
 /* One row of controls, the podium, then as many rows as fit; the full list opens over the card */
 .dash.is-cards .charts.is-card {
@@ -7499,7 +7661,7 @@ html.cards-open body {
   opacity: 1;
 }
 
-/* ---------- end card: C3 The Charts ---------- */
+/* ---------- end card: C4 The Charts ---------- */
 
 
 

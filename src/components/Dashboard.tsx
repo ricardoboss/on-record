@@ -15,6 +15,8 @@ import {
   songStats,
   takes,
 } from '../data/insights'
+import { genreStats } from '../data/genres'
+import { generateSampleGenreMap } from '../data/sample'
 import {
   canHide,
   filterByYear,
@@ -46,6 +48,7 @@ import { Calendar } from './Calendar'
 import { CardNav } from './CardNav'
 import { Clock, ClockTable } from './Clock'
 import { Constellation, ConstellationTable } from './Constellation'
+import { Genres, GenresTable } from './Genres'
 import { Hero } from './Hero'
 import { Launcher, type LauncherMode } from './Launcher'
 import { LinerNotes } from './LinerNotes'
@@ -68,9 +71,10 @@ const TRACKS: Track[] = [
   { id: 'clock', num: 'B1', title: 'Around the Clock' },
   { id: 'days', num: 'B2', title: 'Every Day' },
   { id: 'lovehate', num: 'B3', title: 'Love / Hate' },
-  { id: 'constellation', num: 'C1', title: 'Constellation' },
-  { id: 'pulse', num: 'C2', title: 'Pulse' },
-  { id: 'charts', num: 'C3', title: 'The Charts' },
+  { id: 'genres', num: 'C1', title: 'Genres' },
+  { id: 'constellation', num: 'C2', title: 'Constellation' },
+  { id: 'pulse', num: 'C3', title: 'Pulse' },
+  { id: 'charts', num: 'C4', title: 'The Charts' },
   { id: 'notes', num: 'D1', title: 'Liner Notes' },
   { id: 'poster', num: 'D2', title: 'The Poster' },
 ]
@@ -180,6 +184,8 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   const days = useMemo(() => dailyTotals(plays), [plays])
   const songs = useMemo(() => songStats(plays, 250), [plays])
   const graph = useMemo(() => artistGraph(plays, 36, 3), [plays])
+  const sampleGenres = useMemo(() => isSample ? generateSampleGenreMap() : null, [isSample])
+  const genres = useMemo(() => genreStats(plays, sampleGenres ? p => sampleGenres.get(p.uri) ?? [] : undefined), [plays, sampleGenres])
 
   const firstHeard = useMemo(() => firstListens(all), [all])
   // Every music artist, most-listened first, ranked once. The launcher's lists split it by what's hidden,
@@ -667,8 +673,19 @@ export function Dashboard({ result, isSample, onReset }: Props) {
             <Side label="Side C" title={SIDES.C} />
 
             <Chapter
-              id="constellation"
+              id="genres"
               num="C1"
+              title="Genres"
+              hint="What you listen to most, and what you skip."
+              lede={<>Your listening sorted into genres, by time or by how often you skip. Songs with several genres count toward each, split evenly. {isSample ? 'The demo uses fictional song genres.' : <>Tags from <a href="https://musicbrainz.org">MusicBrainz</a>, filtered and reformatted under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>. This small catalogue covers only some songs.</>}</>}
+              table={() => <GenresTable stats={genres} />}
+            >
+              <Genres key={viewKey} stats={genres} />
+            </Chapter>
+
+            <Chapter
+              id="constellation"
+              num="C2"
               title="Constellation"
               hint="Artists you play back to back, joined up. Tap a star, pinch to zoom."
               lede="Your top artists as stars, joined when you play one straight after the other. Clusters are your scenes."
@@ -679,7 +696,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
 
             <Chapter
               id="pulse"
-              num="C2"
+              num="C3"
               title="Pulse"
               hint="Your top artists over time, one line each. Tap a line."
               lede="Your top artists over time, one line each."
@@ -698,7 +715,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
               )}
             </Chapter>
 
-            <Chapter id="charts" num="C3" title="The Charts" hint="Your rankings." lede="The rankings. Every cover is generated from the name, since nothing is fetched from anywhere.">
+            <Chapter id="charts" num="C4" title="The Charts" hint="Your rankings." lede="The rankings. Every cover is generated from the name, since nothing is fetched from anywhere.">
               <TopCharts plays={plays} onHide={(artist) => hideArtists([artist])} hidden={hidden} onManage={() => setLauncher('artists')} />
             </Chapter>
 

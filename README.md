@@ -19,6 +19,7 @@ Everything runs in your browser. There's no server, and your data is never uploa
 | **Around the Clock** | 24-hour radial chart split into day and night, your artist for each part of the day (on a phone, the one you lean on more than usual), and a weekday × hour dot matrix. |
 | **Every Day** | Calendar heatmap, one square per day, a year at a time. On a phone it's a calendar: pick a year, a month and a day, or find a date, and the day opens with everything you played. |
 | **Love / Hate** | The song you let play most against the one you skip most, then (on a bigger screen) every most-played song by plays vs. skip rate. |
+| **Genres** | Listening time and skip rates by genre, matched against a bundled offline catalogue, with coverage shown. |
 | **Constellation** | Force-directed map of artists you play back to back. Clusters are your scenes. |
 | **Pulse** | An *Unknown Pleasures*-style ridgeline of your top artists, in the order you found them. |
 | **The Charts** | Top artists, songs, albums and podcasts with generative covers. |
@@ -119,3 +120,15 @@ src/
 ## Disclaimer
 
 My Listening Record is an independent project, not affiliated with, endorsed by or sponsored by Spotify AB or Apple Inc. Spotify is a trademark of Spotify AB. Apple Music is a trademark of Apple Inc.
+
+## Offline genre catalogue
+
+The dashboard makes no metadata requests. Song tags are imported into the JavaScript bundle at build time; listening histories never enter the catalogue generator. Matching uses artist and title, with album disambiguation when available. Version markers are preserved and conflicting matches remain unknown. There is no artist-level fallback.
+
+To rebuild the catalogue, run `npm run catalogue:genres -- 5` (pages per genre, default 5). This development-only command requests public recordings from MusicBrainz, at no more than one request per 1.1 seconds, and filters positive tags against MusicBrainz's genre list. It writes the catalogue atomically only after all requests succeed. Normal builds and CI use the committed snapshot and need no metadata service. More pages increase size and coverage, but search results are not representative of every listener or the entire music catalogue.
+
+The initial snapshot samples 12 broad genre searches, one page each. Missing songs stay unknown; coverage is shown by listening time and starts. This is a limited catalogue, not comprehensive genre detection. The sample history uses its own seeded, fictional song genres instead of public metadata.
+
+Listening time, starts and skips are split equally between a song's accepted genres. Skip rates include short starts and use the same skip definition as the rest of the app. Fractional starts are weighted contributions, not distinct plays; song and artist counts are distinct within each genre. Genres need 20 weighted starts to enter the skip ranking. Historical listening is classified using the snapshot's tags, not historical tags.
+
+**Data licence:** `src/data/catalogue/genres.json` contains genre associations from [MusicBrainz](https://musicbrainz.org), filtered and reformatted by this project. This dataset is separately licensed under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), including its attribution, noncommercial and share-alike conditions; the repository's MIT licence does not relicense it. See the snapshot for its generation date and source recording identifiers. [MusicBrainz licensing details](https://musicbrainz.org/doc/About/Data_License).
