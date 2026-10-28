@@ -191,7 +191,15 @@ function Scatter({ songs, skipRate, marks }: ScatterProps) {
   const midPlays = Math.sqrt(minPlays * maxPlays)
 
   const callouts = useMemo(
-    () => marks.flatMap(({ key, tag }) => songs.filter((s) => s.key === key).map((song) => ({ song, tag }))),
+    () => {
+      const found = new Map<string, { song: SongStat; tag: string }>()
+      for (const { key, tag } of marks) {
+        const song = songs.find(s => s.key === key)
+        if (!song) continue
+        found.set(key, { song, tag: found.has(key) ? 'Least and most skipped' : tag })
+      }
+      return [...found.values()]
+    },
     [songs, marks],
   )
   const calloutKeys = new Set(callouts.map((c) => c.song.key))
