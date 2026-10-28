@@ -46,3 +46,7 @@ Apple Media Services*/
 
 # Local Claude Code config
 .claude/
+
+# Local catalogue build cache and Python bytecode
+/.cache/musicbrainz/
+__pycache__/

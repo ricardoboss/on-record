@@ -3,6 +3,7 @@ import { useCallback, useContext, useMemo, useRef, useState, type MouseEvent } f
 import { artistSeries, type Bins } from '../data/insights'
 import { peakBin } from '../data/pulse'
 import { formatDate, formatDuration, formatMonthYearShort } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { usePageScroll, useSize, useWidth } from '../lib/hooks'
 import { leaveUnlessTouch } from '../lib/pointer'
 import { colorFor } from '../lib/palette'
@@ -37,6 +38,7 @@ function Chevron({ up }: { up?: boolean }) {
 }
 
 export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: Props) {
+  const { singular, plural } = useGrouping()
   // On a phone's card the ridges are fitted to the card's height instead of growing down the page
   const card = useContext(InCards)
   const ref = useRef<HTMLDivElement>(null)
@@ -153,7 +155,7 @@ export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: P
       width={width}
       height={height}
       role="img"
-      aria-label={`Ridgeline of your top ${artists.length} artists over time, in the order you first heard them`}
+      aria-label={`Ridgeline of your top ${artists.length} ${plural} over time, in the order you first heard them`}
       onPointerMove={card ? undefined : onMove}
       onPointerDown={card ? undefined : onMove}
       onPointerLeave={card ? undefined : leaveUnlessTouch(clearHover)}
@@ -211,7 +213,7 @@ export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: P
       {!narrow && (
         <>
           <text x={left - 14} y={14} textAnchor="end" className="axis-title">
-            artist
+            {singular}
           </text>
           <text x={width - right + 14} y={14} className="axis-title">
             first heard
@@ -229,13 +231,13 @@ export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: P
 
   const stepper = (p: { row: number; i: number }, icons: boolean) => (
     <>
-      <button type="button" className="pulse__step" aria-label="Previous artist" disabled={p.row === 0} onClick={() => pinAt(p.row - 1, p.i)}>
+      <button type="button" className="pulse__step" aria-label={`Previous ${singular}`} disabled={p.row === 0} onClick={() => pinAt(p.row - 1, p.i)}>
         {icons ? <Chevron up /> : '↑'}
       </button>
       <button
         type="button"
         className="pulse__step"
-        aria-label="Next artist"
+        aria-label={`Next ${singular}`}
         disabled={p.row === artists.length - 1}
         onClick={() => pinAt(p.row + 1, p.i)}
       >
@@ -302,7 +304,7 @@ export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: P
         items={[
           {
             glyph: <path d="M1 14H9C12 14 13 2 16 2S20 14 23 14H27" fill="none" stroke={colorFor(colors, first)} strokeWidth={1.8} />,
-            text: `One line per artist, peaking at their biggest ${bins.size === 'month' ? 'month' : 'week'}`,
+            text: `One line per ${singular}, peaking at their biggest ${bins.size === 'month' ? 'month' : 'week'}`,
           },
           {
             glyph: <line x1={1} x2={27} y1={10} y2={10} stroke="currentColor" strokeWidth={1.8} />,
@@ -327,7 +329,7 @@ export function Pulse({ bins, totals, artists, firstHeard, colors, onPoster }: P
       <div className="pulse__foot">
         <span className="muted">
           {pinned
-            ? `Drag the slider to move through time, arrows to change artist. ${narrow ? 'Tap' : 'Click'} the line again to let go.`
+            ? `Drag the slider to move through time, arrows to change ${singular}. ${narrow ? 'Tap' : 'Click'} the line again to let go.`
             : narrow
               ? 'Tap a line for its hours.'
               : 'Hover a line for its hours, click to keep it.'}

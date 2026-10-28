@@ -1,8 +1,10 @@
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { HourSlot, Records, Take } from '../data/insights'
+import { UNKNOWN_GENRE } from '../data/grouping'
 import { smallPrint } from '../data/smallPrint'
 import type { FunStats, Ranked, Summary, WearOut } from '../data/stats'
 import { formatDate, formatDuration, formatHour, formatNumber, formatPercent, formatTime } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { InCards } from '../lib/stage'
 
 interface Props {
@@ -94,13 +96,15 @@ interface CreditsProps {
 }
 
 function Credits({ fun, rec, summary, devices, topArtists, hours, isAllTime }: CreditsProps) {
+  const { plural } = useGrouping()
   const credits: { label: string; value: string }[] = []
 
   const featuring = topArtists.slice(0, 5).map((a) => a.label)
   if (featuring.length) {
-    credits.push({ label: 'Top artists', value: listOf(featuring) })
-    const others = summary.artists - featuring.length
-    if (others > 0) credits.push({ label: 'Other artists', value: formatNumber(others) })
+    credits.push({ label: `Top ${plural}`, value: listOf(featuring) })
+    // The summary counts genres that are known, so the unknown bucket in the list doesn't use one up
+    const others = summary.artists - featuring.filter((name) => name !== UNKNOWN_GENRE).length
+    if (others > 0) credits.push({ label: `Other ${plural}`, value: formatNumber(others) })
   }
 
   if (devices.length) {
@@ -289,6 +293,7 @@ function posOf(count: number): number {
 const CLOSE = 5
 
 function Habits({ summary }: { summary: Summary }) {
+  const { plural } = useGrouping()
   const habits: Habit[] = [
     { key: 'skip', question: 'How many songs do you skip?', value: summary.skipRate, note: 'Songs you skipped before they ended' },
   ]
@@ -297,7 +302,7 @@ function Habits({ summary }: { summary: Summary }) {
     habits.push({ key: 'shuffle', question: 'How often is shuffle on?', value: summary.shuffleRate, note: 'Songs played with shuffle on' })
   }
   if (summary.artists > 0) {
-    habits.push({ key: 'artists', question: 'How many different artists did you play?', value: summary.artists, note: 'Artists with at least one play', count: true })
+    habits.push({ key: 'artists', question: `How many different ${plural} did you play?`, value: summary.artists, note: `${plural[0].toUpperCase() + plural.slice(1)} with at least one play`, count: true })
   }
   if (summary.podcastMs > 0) {
     habits.push({

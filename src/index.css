@@ -1209,6 +1209,7 @@ th {
   }
   .topbar .brand__name,
   .topbar__years,
+  .topbar__grouping,
   .topbar__actions {
     display: none;
   }
@@ -5678,6 +5679,18 @@ html.cards-open body {
 
 .dash.is-cards .topbar .topbar__select {
   margin-left: auto;
+}
+
+/* Artists or Genres sits right of the year, so only the year's dropdown takes the free space */
+.dash.is-cards .topbar .topbar__select--grouping {
+  margin-left: 0;
+}
+
+/* Two dropdowns and search leave no room for the name on a narrow phone: the dot still takes you home */
+@media (max-width: 539px) {
+  .dash.is-cards .topbar .brand__name {
+    display: none;
+  }
 }
 
 /* The bar at the bottom: back, the track you're on (tap for the list), and on.

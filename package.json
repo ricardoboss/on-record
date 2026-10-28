@@ -10,7 +10,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "catalogue:genres": "node scripts/build-genres.mjs"
+    "catalogue:genres": "python3 scripts/build-genres-bulk.py",
+    "test:catalogue": "python3 -B -m unittest discover -s tests/catalogue -v"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

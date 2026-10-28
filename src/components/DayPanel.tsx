@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent } 
 import { dayDetail } from '../data/insights'
 import { fromDayNumber, isSkip } from '../data/stats'
 import { formatDuration, formatHour, formatLongDate, formatNumber, formatShortDate, formatTime } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { colorFor } from '../lib/palette'
 import { InCards } from '../lib/stage'
 import { useSwipe } from '../lib/swipe'
@@ -34,6 +35,8 @@ type Tab = 'artists' | 'songs' | 'log'
 
 export function DayPanel({ day, plays, firstHeard, colors, prev, next, onSelect, onClose }: Props) {
   const inCards = useContext(InCards)
+  const grouping = useGrouping()
+  const Noun = grouping.plural[0].toUpperCase() + grouping.plural.slice(1)
   const ref = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<Tab>('artists')
   // On the sheet, first listens show one name and "+n" until you ask for the rest
@@ -43,7 +46,7 @@ export function DayPanel({ day, plays, firstHeard, colors, prev, next, onSelect,
     if (dir === 1 && next !== null) onSelect(next)
     else if (dir === -1 && prev !== null) onSelect(prev)
   }, '.day-panel__pane')
-  const detail = useMemo(() => dayDetail(plays, day, firstHeard), [plays, day, firstHeard])
+  const detail = useMemo(() => dayDetail(plays, day, firstHeard, grouping), [plays, day, firstHeard, grouping])
   // The full log stays open only for the day it was opened on
   const [expandedDay, setExpandedDay] = useState<number | null>(null)
   const showAll = expandedDay === day
@@ -81,7 +84,7 @@ export function DayPanel({ day, plays, firstHeard, colors, prev, next, onSelect,
         <dd>{formatNumber(detail.streams)}</dd>
       </div>
       <div>
-        <dt>Artists</dt>
+        <dt>{Noun}</dt>
         <dd>{formatNumber(detail.artists.length)}</dd>
       </div>
       <div>
@@ -227,7 +230,7 @@ export function DayPanel({ day, plays, firstHeard, colors, prev, next, onSelect,
           value={tab}
           onChange={setTab}
           options={[
-            { value: 'artists', label: 'Artists' },
+            { value: 'artists', label: Noun },
             { value: 'songs', label: 'Songs' },
             { value: 'log', label: `Every play (${formatNumber(log.length)})` },
           ]}
@@ -281,7 +284,7 @@ export function DayPanel({ day, plays, firstHeard, colors, prev, next, onSelect,
 
       <div className="day-panel__cols">
         <section>
-          <h4 className="day-panel__label">Top artists</h4>
+          <h4 className="day-panel__label">Top {grouping.plural}</h4>
           {artistList}
         </section>
         <section>

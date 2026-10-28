@@ -1,3 +1,4 @@
+import { ARTIST_GROUPING, type Grouping } from './grouping'
 import type { Play } from '../types'
 import { formatDate, formatDuration, formatHour, formatNumber, formatTime } from '../lib/format'
 import { COUNTED_PLAY_MS, dayNumber, fromDayNumber, isSkip, startDate, trackKey, type FunStats, type Summary } from './stats'
@@ -59,14 +60,14 @@ export function makeBins(plays: Play[], year: number | null): Bins {
 }
 
 /** Music listening per artist in each bin. The building block for eras, the race and the river. */
-export function binArtistTotals(plays: Play[], bins: Bins): Map<string, number>[] {
+export function binArtistTotals(plays: Play[], bins: Bins, grouping: Grouping = ARTIST_GROUPING): Map<string, number>[] {
   const totals = bins.starts.map(() => new Map<string, number>())
   for (const p of plays) {
     if (p.kind !== 'track') continue
     const i = bins.indexOf(p.endTime - p.msPlayed)
     const bin = totals[i]
     if (!bin) continue
-    bin.set(p.artist, (bin.get(p.artist) ?? 0) + p.msPlayed)
+    for (const { name, weight } of grouping.members(p)) bin.set(name, (bin.get(name) ?? 0) + p.msPlayed * weight)
   }
   return totals
 }
@@ -216,13 +217,13 @@ export interface HourSlot {
   top: string | null
 }
 
-export function hourProfile(plays: Play[]): HourSlot[] {
+export function hourProfile(plays: Play[], grouping: Grouping = ARTIST_GROUPING): HourSlot[] {
   const byHour = Array.from({ length: 24 }, () => new Map<string, number>())
   const ms = new Array<number>(24).fill(0)
   for (const p of plays) {
     const h = startDate(p).getHours()
     ms[h] += p.msPlayed
-    byHour[h].set(p.artist, (byHour[h].get(p.artist) ?? 0) + p.msPlayed)
+    for (const { name, weight } of grouping.members(p)) byHour[h].set(name, (byHour[h].get(name) ?? 0) + p.msPlayed * weight)
   }
   return ms.map((total, hour) => ({ hour, ms: total, top: topEntries(byHour[hour], 1)[0]?.[0] ?? null }))
 }
@@ -245,13 +246,13 @@ const DAYPARTS = [
 ]
 
 /** The artist you reach for at each part of the day */
-export function dayparts(plays: Play[]): Daypart[] {
+export function dayparts(plays: Play[], grouping: Grouping = ARTIST_GROUPING): Daypart[] {
   const maps = DAYPARTS.map(() => new Map<string, number>())
   for (const p of plays) {
     if (p.kind !== 'track') continue
     const h = startDate(p).getHours()
     const i = DAYPARTS.findIndex((d) => h >= d.from && h < d.to)
-    maps[i].set(p.artist, (maps[i].get(p.artist) ?? 0) + p.msPlayed)
+    for (const { name, weight } of grouping.members(p)) maps[i].set(name, (maps[i].get(name) ?? 0) + p.msPlayed * weight)
   }
   return DAYPARTS.map((d, i) => {
     const [top] = topEntries(maps[i], 1)
@@ -267,7 +268,7 @@ export interface DayTotal {
   top: string
 }
 
-export function dailyTotals(plays: Play[]): Map<number, DayTotal> {
+export function dailyTotals(plays: Play[], grouping: Grouping = ARTIST_GROUPING): Map<number, DayTotal> {
   const days = new Map<number, { ms: number; plays: number; artists: Map<string, number> }>()
   for (const p of plays) {
     const day = dayNumber(startDate(p))
@@ -278,7 +279,7 @@ export function dailyTotals(plays: Play[]): Map<number, DayTotal> {
     }
     d.ms += p.msPlayed
     if (p.msPlayed >= COUNTED_PLAY_MS) d.plays++
-    d.artists.set(p.artist, (d.artists.get(p.artist) ?? 0) + p.msPlayed)
+    for (const { name, weight } of grouping.members(p)) d.artists.set(name, (d.artists.get(name) ?? 0) + p.msPlayed * weight)
   }
   const out = new Map<number, DayTotal>()
   for (const [day, d] of days) out.set(day, { ms: d.ms, plays: d.plays, top: topEntries(d.artists, 1)[0][0] })
@@ -307,7 +308,7 @@ const LONGEST_PLAY_MS = DAY_MS
  * What happened on one day. `plays` must be sorted by endTime (as loaded), so
  * this finds the day's plays with a binary search instead of scanning them all.
  */
-export function dayDetail(plays: Play[], day: number, firstHeard: Map<string, number>): DayDetail {
+export function dayDetail(plays: Play[], day: number, firstHeard: Map<string, number>, grouping: Grouping = ARTIST_GROUPING): DayDetail {
   const from = fromDayNumber(day).getTime()
   const to = fromDayNumber(day + 1).getTime()
   let lo = 0
@@ -338,10 +339,12 @@ export function dayDetail(plays: Play[], day: number, firstHeard: Map<string, nu
     if (p.kind === 'track' && isSkip(p)) skips++
     hours[startDate(p).getHours()] += p.msPlayed
 
-    const a = artists.get(p.artist) ?? { name: p.artist, ms: 0, plays: 0 }
-    a.ms += p.msPlayed
-    if (counted) a.plays++
-    artists.set(p.artist, a)
+    for (const { name, weight } of grouping.members(p)) {
+      const a = artists.get(name) ?? { name, ms: 0, plays: 0 }
+      a.ms += p.msPlayed * weight
+      if (counted) a.plays += weight
+      artists.set(name, a)
+    }
 
     const key = trackKey(p)
     const s = songs.get(key) ?? { key, title: p.title, artist: p.artist, ms: 0, plays: 0 }
@@ -380,7 +383,21 @@ export interface SongStat {
 }
 
 /** The most-played songs, with how often each got skipped */
-export function songStats(plays: Play[], limit: number): SongStat[] {
+export function songStats(plays: Play[], limit: number, grouping: Grouping = ARTIST_GROUPING): SongStat[] {
+  if (grouping.mode === 'genre') {
+    const groups = new Map<string, SongStat>()
+    for (const p of plays) {
+      if (p.kind !== 'track') continue
+      for (const { name, weight } of grouping.members(p)) {
+        const stat = groups.get(name) ?? { key: name, title: name, artist: '', plays: 0, skips: 0, ms: 0 }
+        stat.plays += weight
+        stat.skips += isSkip(p) ? weight : 0
+        stat.ms += p.msPlayed * weight
+        groups.set(name, stat)
+      }
+    }
+    return [...groups.values()].filter(s => s.plays >= 4).sort((a, b) => b.plays - a.plays).slice(0, limit)
+  }
   const songs = new Map<string, SongStat>()
   for (const p of plays) {
     if (p.kind !== 'track') continue
@@ -418,17 +435,22 @@ export interface GraphLink {
  * Artists linked by what you play back to back. Each artist keeps only its
  * strongest few links, which is what makes it read as a constellation, not a hairball.
  */
-export function artistGraph(plays: Play[], topN: number, perNode: number): { nodes: GraphNode[]; links: GraphLink[] } {
+export function artistGraph(plays: Play[], topN: number, perNode: number, grouping: Grouping = ARTIST_GROUPING): { nodes: GraphNode[]; links: GraphLink[] } {
   const ms = new Map<string, number>()
   const pairs = new Map<string, number>()
   let prev: Play | null = null
 
   for (const p of plays) {
     if (p.kind !== 'track') continue
-    ms.set(p.artist, (ms.get(p.artist) ?? 0) + p.msPlayed)
-    if (prev && prev.artist !== p.artist && p.endTime - p.msPlayed - prev.endTime < TRANSITION_GAP_MS) {
-      const key = prev.artist < p.artist ? `${prev.artist}\u0000${p.artist}` : `${p.artist}\u0000${prev.artist}`
-      pairs.set(key, (pairs.get(key) ?? 0) + 1)
+    const members = grouping.members(p)
+    for (const { name, weight } of members) ms.set(name, (ms.get(name) ?? 0) + p.msPlayed * weight)
+    if (prev && p.endTime - p.msPlayed - prev.endTime < TRANSITION_GAP_MS) {
+      // Only original consecutive songs make links; memberships are not extra plays.
+      for (const before of grouping.members(prev)) for (const after of members) {
+        if (before.name === after.name) continue
+        const key = before.name < after.name ? `${before.name}\u0000${after.name}` : `${after.name}\u0000${before.name}`
+        pairs.set(key, (pairs.get(key) ?? 0) + before.weight * after.weight)
+      }
     }
     prev = p
   }
@@ -455,10 +477,11 @@ export function artistGraph(plays: Play[], topN: number, perNode: number): { nod
 // ---------- Ridgelines ----------
 
 /** When each artist was first heard (a counted play) */
-export function firstListens(plays: Play[]): Map<string, number> {
+export function firstListens(plays: Play[], grouping: Grouping = ARTIST_GROUPING): Map<string, number> {
   const first = new Map<string, number>()
   for (const p of plays) {
-    if (p.kind === 'track' && p.msPlayed >= COUNTED_PLAY_MS && !first.has(p.artist)) first.set(p.artist, p.endTime - p.msPlayed)
+    if (p.kind !== 'track' || p.msPlayed < COUNTED_PLAY_MS) continue
+    for (const { name } of grouping.members(p)) if (!first.has(name)) first.set(name, p.endTime - p.msPlayed)
   }
   return first
 }
@@ -501,7 +524,7 @@ export interface Records {
   forgotten: { artist: string; lastPlayed: number; ms: number } | null
 }
 
-export function records(plays: Play[], sessionList: Session[]): Records {
+export function records(plays: Play[], sessionList: Session[], grouping: Grouping = ARTIST_GROUPING): Records {
   const firstTrack = plays.find((p) => p.kind === 'track' && p.msPlayed >= COUNTED_PLAY_MS)
   const marathon = sessionList.reduce<Session | null>((best, s) => (!best || s.ms > best.ms ? s : best), null)
   const avgSessionMs = sessionList.length ? sum(sessionList.map((s) => s.ms)) / sessionList.length : 0
@@ -512,8 +535,10 @@ export function records(plays: Play[], sessionList: Session[]): Records {
   const artistLast = new Map<string, number>()
   for (const p of plays) {
     if (p.kind !== 'track') continue
-    artistMs.set(p.artist, (artistMs.get(p.artist) ?? 0) + p.msPlayed)
-    artistLast.set(p.artist, p.endTime)
+    for (const { name, weight } of grouping.members(p)) {
+      artistMs.set(name, (artistMs.get(name) ?? 0) + p.msPlayed * weight)
+      artistLast.set(name, Math.max(artistLast.get(name) ?? 0, p.endTime))
+    }
     if (p.msPlayed < COUNTED_PLAY_MS) continue
     const d = startDate(p)
     const key = trackKey(p)
@@ -568,7 +593,7 @@ export interface Take {
  * about you, most unusual first. Each candidate scores 0–1 on how far it
  * sits from the ordinary, so a contradiction or an obsession beats a total.
  */
-export function takes(plays: Play[], summary: Summary, rec: Records, fun: FunStats, hours: HourSlot[], isAllTime: boolean): Take[] {
+export function takes(plays: Play[], summary: Summary, rec: Records, fun: FunStats, hours: HourSlot[], isAllTime: boolean, grouping: Grouping = ARTIST_GROUPING): Take[] {
   const clamp = (v: number) => Math.max(0, Math.min(1, v))
   const pct = (f: number) => `${Math.round(f * 100)}%`
   const out: Take[] = []
@@ -576,14 +601,13 @@ export function takes(plays: Play[], summary: Summary, rec: Records, fun: FunSta
   const artists = new Map<string, { ms: number; starts: number; skips: number }>()
   for (const p of plays) {
     if (p.kind !== 'track') continue
-    let a = artists.get(p.artist)
-    if (!a) {
-      a = { ms: 0, starts: 0, skips: 0 }
-      artists.set(p.artist, a)
+    for (const { name, weight } of grouping.members(p)) {
+      const a = artists.get(name) ?? { ms: 0, starts: 0, skips: 0 }
+      a.ms += p.msPlayed * weight
+      a.starts += weight
+      if (isSkip(p)) a.skips += weight
+      artists.set(name, a)
     }
-    a.ms += p.msPlayed
-    a.starts++
-    if (isSkip(p)) a.skips++
   }
 
   // A heavy skipper with one artist they let play out
@@ -666,8 +690,8 @@ export function takes(plays: Play[], summary: Summary, rec: Records, fun: FunSta
       })
     } else if (share < 0.06 && summary.artists >= 300) {
       out.push({
-        text: `${formatNumber(summary.artists)} artists, and not one of them more than ${pct(share) === '0%' ? '1%' : pct(share)} of it.`,
-        proof: `Your top artist, ${top[0]}, is ${pct(share)} of your music`,
+        text: `${formatNumber(summary.artists)} ${grouping.plural}, and not one of them more than ${pct(share) === '0%' ? '1%' : pct(share)} of it.`,
+        proof: `Your top ${grouping.singular}, ${top[0]}, is ${pct(share)} of your music`,
         score: clamp((0.07 - share) / 0.05) * 0.8,
       })
     }
@@ -712,7 +736,7 @@ export function takes(plays: Play[], summary: Summary, rec: Records, fun: FunSta
   }
 
   out.push({
-    text: `${formatNumber(summary.totalMs / 3_600_000)} hours, ${formatNumber(summary.artists)} artists.`,
+    text: `${formatNumber(summary.totalMs / 3_600_000)} hours, ${formatNumber(summary.artists)} ${grouping.plural}.`,
     proof: `${formatNumber(summary.streams)} plays of 30 seconds or more`,
     score: 0,
   })

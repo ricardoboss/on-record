@@ -16,6 +16,7 @@ import {
   type RecordModel,
 } from '../../src/viz/record'
 import { formatMonthShort } from '../../src/lib/format'
+import { ARTIST_GROUPING, createGrouping } from '../../src/data/grouping'
 import { at, play, sorted } from '../helpers'
 
 describe('visibleWindow', () => {
@@ -330,5 +331,42 @@ describe('drawRecord', () => {
     expect(layer.every((s) => s.style === `slot${SLOT_OTHER}` && s.arcs <= ARCS_PER_STROKE)).toBe(true)
     expect(laid).toEqual([DIMMED])
     expect([...strokes, ...layer].reduce((sum, s) => sum + s.arcs, 0)).toBe(m.count)
+  })
+})
+
+
+describe('record grouping', () => {
+  const genres = createGrouping('genre', () => ['Rock', 'Pop', 'Soul'])
+
+  it('divides a play among tags without changing its time or pointer', () => {
+    const plays = [play(at(2024, 2, 4, 12), { msPlayed: 180_123 })]
+    const model = buildRecord(plays, ['Rock', 'Pop', 'Soul'], 2024, genres)
+    expect(model.count).toBe(3)
+    expect([...model.slot.slice(0, model.count)]).toEqual([0, 1, 2])
+    expect([...model.play.slice(0, model.count)]).toEqual([0, 0, 0])
+    const lengths = Array.from({ length: model.count }, (_, i) => model.to[i] - model.from[i])
+    for (const length of lengths) expect(length).toBeCloseTo(180_123 / 60_000 / 3, 9)
+    expect(model.dayMinutes.reduce((sum, minutes) => sum + minutes, 0)).toBeCloseTo(180_123 / 60_000, 9)
+    expect(model.to[0]).toBe(model.from[1])
+    expect(model.to[1]).toBe(model.from[2])
+  })
+
+  it('keeps both sides of midnight with several tags and original play pointers', () => {
+    const plays = sorted([
+      play(at(2024, 2, 4, 23, 59), { msPlayed: 120_123 }),
+      play(at(2024, 2, 5, 12), { msPlayed: 60_000 }),
+    ])
+    const model = buildRecord(plays, ['Rock', 'Pop', 'Soul'], 2024, genres)
+    expect(model.count).toBe(9)
+    expect([...model.play.slice(0, model.count)]).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 1])
+    expect(model.ring[3]).toBe(model.ring[0] + 1)
+    expect(model.to[2]).toBe(1440)
+    expect(model.from[3]).toBe(0)
+    expect(model.dayMinutes.reduce((sum, minutes) => sum + minutes, 0)).toBeCloseTo(180_123 / 60_000, 9)
+  })
+
+  it('preserves the default artist model exactly', () => {
+    const plays = [play(at(2024, 2, 4, 23, 59), { msPlayed: 180_000, artist: 'A' })]
+    expect(buildRecord(plays, ['A'], 2024)).toEqual(buildRecord(plays, ['A'], 2024, ARTIST_GROUPING))
   })
 })

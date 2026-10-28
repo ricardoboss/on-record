@@ -16,7 +16,7 @@
 !tests/
 !tests/**
 !scripts/
-!scripts/build-genres.mjs
+!scripts/build-genres-bulk.py
 !docker/
 !docker/nginx.conf
 !docker/headers.awk

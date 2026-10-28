@@ -1,3 +1,4 @@
+import { ARTIST_GROUPING, UNKNOWN_GENRE, type Grouping } from './grouping'
 import type { Play } from '../types'
 
 /*
@@ -96,7 +97,7 @@ export interface Summary {
   offlineShare: number
 }
 
-export function summarize(plays: Play[]): Summary {
+export function summarize(plays: Play[], grouping: Grouping = ARTIST_GROUPING): Summary {
   let totalMs = 0
   let musicMs = 0
   let podcastMs = 0
@@ -122,7 +123,7 @@ export function summarize(plays: Play[]): Summary {
       if (isSkip(p)) skips++
       if (p.shuffle !== null) shuffleKnown++
       if (p.shuffle) shuffles++
-      artists.add(p.artist)
+      for (const { name } of grouping.members(p)) if (grouping.mode !== 'genre' || name !== UNKNOWN_GENRE) artists.add(name)
       if (p.msPlayed >= COUNTED_PLAY_MS) tracks.add(trackKey(p))
     } else if (p.kind === 'episode') {
       podcastMs += p.msPlayed
@@ -234,7 +235,7 @@ export function trackKey(p: Play): string {
   return p.uri || `${p.artist}|${p.title}`
 }
 
-export function topItems(plays: Play[], category: Category, rankBy: RankBy, limit: number): Ranked[] {
+export function topItems(plays: Play[], category: Category, rankBy: RankBy, limit: number, grouping: Grouping = ARTIST_GROUPING): Ranked[] {
   const items = new Map<string, Ranked>()
   const wantKind = category === 'show' ? 'episode' : 'track'
 
@@ -242,10 +243,20 @@ export function topItems(plays: Play[], category: Category, rankBy: RankBy, limi
     if (p.kind !== wantKind) continue
     if (category === 'album' && !p.album) continue
 
+    if (category === 'artist') {
+      for (const { name, weight } of grouping.members(p)) {
+        const item = items.get(name) ?? { key: name, label: name, ms: 0, plays: 0 }
+        item.ms += p.msPlayed * weight
+        if (p.msPlayed >= COUNTED_PLAY_MS) item.plays += weight
+        items.set(name, item)
+      }
+      continue
+    }
+
     let key: string
     let label: string
     let sublabel: string | undefined
-    if (category === 'artist' || category === 'show') {
+    if (category === 'show') {
       key = label = p.artist
     } else if (category === 'track') {
       key = trackKey(p)
@@ -362,12 +373,14 @@ export function funStats(plays: Play[]): FunStats {
 }
 
 /** Artists whose first-ever counted play happened in `year` */
-export function newArtistsIn(allPlays: Play[], year: number): number {
+export function newArtistsIn(allPlays: Play[], year: number, grouping: Grouping = ARTIST_GROUPING): number {
   const firstYear = new Map<string, number>()
   for (const p of allPlays) {
     // allPlays is sorted by time, so the first sighting is the earliest
-    if (p.kind !== 'track' || p.msPlayed < COUNTED_PLAY_MS || firstYear.has(p.artist)) continue
-    firstYear.set(p.artist, startDate(p).getFullYear())
+    if (p.kind !== 'track' || p.msPlayed < COUNTED_PLAY_MS) continue
+    for (const { name } of grouping.members(p)) {
+      if ((grouping.mode !== 'genre' || name !== UNKNOWN_GENRE) && !firstYear.has(name)) firstYear.set(name, startDate(p).getFullYear())
+    }
   }
   let count = 0
   for (const y of firstYear.values()) if (y === year) count++

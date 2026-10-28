@@ -15,7 +15,8 @@ import {
   songStats,
   takes,
 } from '../data/insights'
-import { genreStats } from '../data/genres'
+import { catalogueInfo, genreStats, lookupGenres } from '../data/genres'
+import { createGrouping, UNKNOWN_GENRE, type GroupingMode } from '../data/grouping'
 import { generateSampleGenreMap } from '../data/sample'
 import {
   canHide,
@@ -40,7 +41,8 @@ import { assignColors, OTHER, TOP_ARTISTS } from '../lib/palette'
 import { InCards, OnStage, resolveStop } from '../lib/stage'
 import { closeTopmost, useCloseOnBack } from '../lib/back'
 import { useSwipe } from '../lib/swipe'
-import type { DataSource, LoadResult } from '../types'
+import { GroupingContext } from '../lib/grouping'
+import type { DataSource, LoadResult, Play } from '../types'
 import { layoutConstellation } from '../viz/constellation'
 import { posterMoments, type PosterData, type PosterDesign } from '../viz/poster'
 import { buildRecord, GROOVE, PODCAST } from '../viz/record'
@@ -79,6 +81,9 @@ const TRACKS: Track[] = [
   { id: 'poster', num: 'D2', title: 'The Poster' },
 ]
 
+/** What the Genres chapter ranks when the page groups by artist: the artist stands in for the genre */
+const byArtist = (p: Play) => [p.artist]
+
 const SIDES: Record<string, string> = { A: 'Time', B: 'Rhythm', C: 'Taste', D: 'Take it home' }
 
 /**
@@ -110,6 +115,8 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   // Older Apple Music rows don't say whether shuffle was on
   const noShuffle = useMemo(() => result.plays.filter((p) => p.shuffle === null).length, [result.plays])
   const hasAnyMusic = otherPlays < result.plays.length
+  // Artist or Genre, for every chart, table, poster and video. Like the filters, it isn't stored.
+  const [mode, setMode] = useState<GroupingMode>('artist')
   const [launcher, setLauncher] = useState<LauncherMode | null>(null)
   // Settings opens from the launcher and goes back to it on close, like the launcher's own pages
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -120,22 +127,23 @@ export function Dashboard({ result, isSample, onReset }: Props) {
    * closed and an "Updating" note has painted. Re-running every chart over a long history holds the
    * page for a moment, so it happens once when you're done choosing, not once per artist, and never
    * without saying so. `version` counts the changes that have reached the charts, for `viewKey`.
+   * Switching between artists and genres is one of those changes.
    */
-  const [applied, setApplied] = useState({ filter: chosen, version: 0 })
+  const [applied, setApplied] = useState({ filter: chosen, mode, version: 0 })
   const choosing = launcher !== null || settingsOpen
-  const updating = !choosing && !sameFilter(applied.filter, chosen)
+  const updating = !choosing && (!sameFilter(applied.filter, chosen) || applied.mode !== mode)
   useEffect(() => {
     if (!updating) return
     let timer = 0
     // requestAnimationFrame runs just before the paint, so the timeout after it lands just after
     const frame = requestAnimationFrame(() => {
-      timer = window.setTimeout(() => setApplied((a) => ({ filter: chosen, version: a.version + 1 })))
+      timer = window.setTimeout(() => setApplied((a) => ({ filter: chosen, mode, version: a.version + 1 })))
     })
     return () => {
       cancelAnimationFrame(frame)
       window.clearTimeout(timer)
     }
-  }, [updating, chosen])
+  }, [updating, chosen, mode])
   const all = useMemo(() => filterPlays(result.plays, applied.filter), [result.plays, applied.filter])
   const years = useMemo(() => getYears(all), [all])
   const [pickedYear, setYear] = useState<number | null>(null)
@@ -165,29 +173,40 @@ export function Dashboard({ result, isSample, onReset }: Props) {
 
   // Everything below is computed from `plays`, so the year filter scopes the whole page
   const plays = useMemo(() => filterByYear(all, year), [all, year])
-  const summary = useMemo(() => summarize(plays), [plays])
+  const sampleGenres = useMemo(() => isSample ? generateSampleGenreMap() : null, [isSample])
+  const genreLookup = useMemo(() => (sampleGenres ? (p: Play) => sampleGenres.get(p.uri) ?? [] : lookupGenres), [sampleGenres])
+  // Every chart groups by this; the plays themselves stay as they were exported
+  const grouping = useMemo(() => createGrouping(applied.mode, genreLookup), [applied.mode, genreLookup])
+  const noun = grouping.plural
+  const isGenre = grouping.mode === 'genre'
+  const summary = useMemo(() => summarize(plays, grouping), [plays, grouping])
 
-  // Colors follow the artist: all-time top 10 keep their color when you pick a year
-  const allTop = useMemo(() => topItems(all, 'artist', 'time', TOP_ARTISTS).map((r) => r.label), [all])
-  const topArtists = useMemo(() => topItems(plays, 'artist', 'time', 16), [plays])
+  // Colors follow the artist (or genre): the all-time top 10 keep their color when you pick a year.
+  // Music with no known genre is a group of its own but stays the neutral color, so it never takes a slot.
+  const allTop = useMemo(() => topItems(all, 'artist', 'time', TOP_ARTISTS + 1, grouping).map((r) => r.label).filter((n) => !isGenre || n !== UNKNOWN_GENRE).slice(0, TOP_ARTISTS), [all, grouping, isGenre])
+  const topArtists = useMemo(() => topItems(plays, 'artist', 'time', 16, grouping), [plays, grouping])
   const legend = useMemo(() => topArtists.slice(0, TOP_ARTISTS).map((r) => r.label), [topArtists])
-  const colors = useMemo(() => assignColors(legend, allTop), [legend, allTop])
+  const colors = useMemo(() => {
+    const assigned = assignColors(legend.filter(n => !isGenre || n !== UNKNOWN_GENRE), allTop)
+    if (isGenre) assigned.set(UNKNOWN_GENRE, OTHER)
+    return assigned
+  }, [legend, allTop, isGenre])
 
   const bins = useMemo(() => makeBins(plays, year), [plays, year])
-  const totals = useMemo(() => binArtistTotals(plays, bins), [plays, bins])
+  const totals = useMemo(() => binArtistTotals(plays, bins, grouping), [plays, bins, grouping])
   const eras = useMemo(() => findEras(totals, bins.size), [totals, bins])
   const race = useMemo(() => raceFrames(totals, 10), [totals])
 
-  const hours = useMemo(() => hourProfile(plays), [plays])
-  const parts = useMemo(() => dayparts(plays), [plays])
+  const hours = useMemo(() => hourProfile(plays, grouping), [plays, grouping])
+  const parts = useMemo(() => dayparts(plays, grouping), [plays, grouping])
   const grid = useMemo(() => weekHourGrid(plays), [plays])
-  const days = useMemo(() => dailyTotals(plays), [plays])
-  const songs = useMemo(() => songStats(plays, 250), [plays])
-  const graph = useMemo(() => artistGraph(plays, 36, 3), [plays])
-  const sampleGenres = useMemo(() => isSample ? generateSampleGenreMap() : null, [isSample])
-  const genres = useMemo(() => genreStats(plays, sampleGenres ? p => sampleGenres.get(p.uri) ?? [] : undefined), [plays, sampleGenres])
+  const days = useMemo(() => dailyTotals(plays, grouping), [plays, grouping])
+  const songs = useMemo(() => songStats(plays, 250, grouping), [plays, grouping])
+  const graph = useMemo(() => artistGraph(plays, 36, 3, grouping), [plays, grouping])
+  // The Genres chapter breaks down whatever the page groups by: genres from the catalogue, or the artists themselves
+  const genres = useMemo(() => genreStats(plays, grouping.mode === 'genre' ? genreLookup : byArtist), [plays, grouping.mode, genreLookup])
 
-  const firstHeard = useMemo(() => firstListens(all), [all])
+  const firstHeard = useMemo(() => firstListens(all, grouping), [all, grouping])
   // Every music artist, most-listened first, ranked once. The launcher's lists split it by what's hidden,
   // which stays quick with thousands of artists.
   const musicArtists = useMemo(() => topItems(result.plays, 'artist', 'time', Infinity), [result.plays])
@@ -195,6 +214,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
     () => (applied.filter.hidden.size === 0 ? 0 : result.plays.filter((p) => p.kind === 'track' && applied.filter.hidden.has(p.artist)).length),
     [result.plays, applied.filter.hidden],
   )
+  // Unknown music keeps a neutral ridge, alongside known genre trends.
   const pulseArtists = useMemo(
     () =>
       topArtists
@@ -206,19 +226,19 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   const pulseLines = useMemo(() => pulseArtists.filter((a) => colors.has(a)), [pulseArtists, colors])
 
   const sessionList = useMemo(() => sessions(plays), [plays])
-  const rec = useMemo(() => records(plays, sessionList), [plays, sessionList])
+  const rec = useMemo(() => records(plays, sessionList, grouping), [plays, sessionList, grouping])
   const fun = useMemo(() => funStats(plays), [plays])
-  const lines = useMemo(() => takes(plays, summary, rec, fun, hours, year === null), [plays, summary, rec, fun, hours, year])
+  const lines = useMemo(() => takes(plays, summary, rec, fun, hours, year === null, grouping), [plays, summary, rec, fun, hours, year, grouping])
   const devices = useMemo(() => platforms(plays), [plays])
   const wear = useMemo(() => wearOut(all, year), [all, year])
-  const newArtists = useMemo(() => (year === null ? null : newArtistsIn(all, year)), [all, year])
+  const newArtists = useMemo(() => (year === null ? null : newArtistsIn(all, year, grouping)), [all, year, grouping])
 
   const span = years.length > 1 ? `${years[0]}–${years[years.length - 1]}` : String(years[0])
   const hasMusic = summary.musicMs > 0
   const peak = hours.reduce((best, h) => (h.ms > best.ms ? h : best), hours[0])
 
   // The record and the poster draw from the same model
-  const record = useMemo(() => buildRecord(plays, legend, year), [plays, legend, year])
+  const record = useMemo(() => buildRecord(plays, legend, year, grouping), [plays, legend, year, grouping])
   const slotColors = useMemo(
     () => [...Array.from({ length: TOP_ARTISTS }, (_, i) => colors.get(legend[i]) ?? OTHER), GROOVE, PODCAST],
     [colors, legend],
@@ -229,9 +249,9 @@ export function Dashboard({ result, isSample, onReset }: Props) {
    * (hiding an artist can shift the days, the songs and the racers). One key for all of them can't
    * miss an input the way a key per chart, listing what its state points into, can.
    */
-  const viewKey = `${year ?? 'all'}|${applied.version}`
+  const viewKey = `${year ?? 'all'}|${applied.mode}|${applied.version}`
   const recordTitle = year === null ? 'ALL TIME' : String(year)
-  const recordSubtitle = `${formatNumber(summary.totalMs / 3_600_000)} HRS  ·  ${formatNumber(summary.artists)} ARTISTS`
+  const recordSubtitle = `${formatNumber(summary.totalMs / 3_600_000)} HRS  ·  ${formatNumber(summary.artists)} ${noun.toUpperCase()}`
 
   const posterData = useMemo<PosterData>(
     () => ({
@@ -248,8 +268,9 @@ export function Dashboard({ result, isSample, onReset }: Props) {
       wearOut: wear,
       moments: posterMoments(record, fun, rec),
       source: historyName(result.sources),
+      grouping: grouping.mode,
     }),
-    [year, span, record, slotColors, recordTitle, topArtists, colors, graph, pulseArtists, totals, bins, summary, wear, peak, fun, rec, result.sources],
+    [year, span, record, slotColors, recordTitle, topArtists, colors, graph, pulseArtists, totals, bins, summary, wear, peak, fun, rec, result.sources, grouping.mode],
   )
 
   /*
@@ -257,7 +278,8 @@ export function Dashboard({ result, isSample, onReset }: Props) {
    * time, so every chart is the real one. A period with no music gets the
    * shorter record of what it can still draw.
    */
-  const tourTracks = hasMusic ? TRACKS : TRACKS.filter((t) => t.id === 'charts' || t.id === 'notes' || t.id === 'poster')
+  const tracks = useMemo(() => TRACKS.map((t) => (t.id === 'genres' ? { ...t, title: sentenceCase(noun) } : t)), [noun])
+  const tourTracks = hasMusic ? tracks : tracks.filter((t) => t.id === 'charts' || t.id === 'notes' || t.id === 'poster')
   const tourStops = tourTracks.map((t) => t.id)
   const tourStep = !touring || tourAt === null ? null : resolveStop(tourStops, tourAt, TRACKS.map((t) => t.id))
   const setTourStep = (step: number | null) => setTourAt(step === null ? null : (tourStops[step] ?? null))
@@ -511,366 +533,400 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   }, [hasMusic, cards])
 
   return (
-    <div className={['dash', touring && 'is-touring', cards && 'is-cards', updating && 'is-updating'].filter(Boolean).join(' ')}>
-      <header className="topbar" ref={topbarRef}>
-        <a
-          className="brand"
-          href="#top"
-          aria-label={cards ? 'My Listening Record, back to the first track' : 'My Listening Record, back to the top'}
-          onClick={(e) => {
-            if (!cards) return
-            e.preventDefault()
-            setCardStep(0)
-          }}
-        >
-          <span className="brand__name">My Listening Record</span>
-          <span className="brand__dot" aria-hidden="true" />
-        </a>
-        {/* Phones get a tracklist menu (with Poster and New data in it) and a dropdown for the year instead */}
-        {!cards && <TrackMenu tracks={TRACKS} sides={SIDES} current={current} onPoster={() => makePoster(posterDesign)} onReset={onReset} />}
-        <Segmented
-          className="topbar__years"
-          label="Time period"
-          value={year}
-          onChange={setYear}
-          options={[{ value: null, label: 'All time' }, ...years.map((y) => ({ value: y, label: String(y) }))]}
-        />
-        <select
-          className="topbar__select"
-          aria-label="Time period"
-          value={year === null ? 'all' : String(year)}
-          onChange={(e) => setYear(e.target.value === 'all' ? null : Number(e.target.value))}
-        >
-          <option value="all">All time</option>
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="topbar__launch"
-          aria-label={hidden.size > 0 ? `Open the launcher (${hidden.size} artist${hidden.size === 1 ? '' : 's'} hidden)` : 'Open the launcher'}
-          onClick={() => setLauncher('root')}
-        >
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-            <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M10.4 10.4 14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <kbd>{LAUNCH_KEY}</kbd>
-          {hidden.size > 0 && <span className="topbar__launch-dot" aria-hidden="true" />}
-        </button>
-        <div className="topbar__actions">
-          <button type="button" className="button button--small" onClick={() => makePoster(posterDesign)}>
-            Poster
+    <GroupingContext value={grouping}>
+      <div className={['dash', touring && 'is-touring', cards && 'is-cards', updating && 'is-updating'].filter(Boolean).join(' ')}>
+        <header className="topbar" ref={topbarRef}>
+          <a
+            className="brand"
+            href="#top"
+            aria-label={cards ? 'My Listening Record, back to the first track' : 'My Listening Record, back to the top'}
+            onClick={(e) => {
+              if (!cards) return
+              e.preventDefault()
+              setCardStep(0)
+            }}
+          >
+            <span className="brand__name">My Listening Record</span>
+            <span className="brand__dot" aria-hidden="true" />
+          </a>
+          {/* Phones get a tracklist menu (with Poster and New data in it) and a dropdown for the year instead */}
+          {!cards && <TrackMenu tracks={tracks} sides={SIDES} current={current} onPoster={() => makePoster(posterDesign)} onReset={onReset} />}
+          <Segmented
+            className="topbar__years"
+            label="Time period"
+            value={year}
+            onChange={setYear}
+            options={[{ value: null, label: 'All time' }, ...years.map((y) => ({ value: y, label: String(y) }))]}
+          />
+          <select
+            className="topbar__select"
+            aria-label="Time period"
+            value={year === null ? 'all' : String(year)}
+            onChange={(e) => setYear(e.target.value === 'all' ? null : Number(e.target.value))}
+          >
+            <option value="all">All time</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+          <Segmented
+            className="topbar__grouping"
+            label="Group by"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'artist', label: 'Artists' },
+              { value: 'genre', label: 'Genres' },
+            ]}
+          />
+          <select
+            className="topbar__select topbar__select--grouping"
+            aria-label="Group by"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as GroupingMode)}
+          >
+            <option value="artist">Artists</option>
+            <option value="genre">Genres</option>
+          </select>
+          <button
+            type="button"
+            className="topbar__launch"
+            aria-label={hidden.size > 0 ? `Open the launcher (${hidden.size} artist${hidden.size === 1 ? '' : 's'} hidden)` : 'Open the launcher'}
+            onClick={() => setLauncher('root')}
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M10.4 10.4 14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <kbd>{LAUNCH_KEY}</kbd>
+            {hidden.size > 0 && <span className="topbar__launch-dot" aria-hidden="true" />}
           </button>
-          <button type="button" className="button button--ghost button--small" onClick={onReset}>
-            New data
-          </button>
-        </div>
-      </header>
+          <div className="topbar__actions">
+            <button type="button" className="button button--small" onClick={() => makePoster(posterDesign)}>
+              Poster
+            </button>
+            <button type="button" className="button button--ghost button--small" onClick={onReset}>
+              New data
+            </button>
+          </div>
+        </header>
 
-      <nav className="tracklist" aria-label="Sections">
-        <ol>
-          {TRACKS.map((t) => (
-            <li key={t.id}>
-              <a href={`#${t.id}`} aria-current={current === t.id ? 'true' : undefined}>
-                <span>{t.num}</span>
-                {t.title}
-              </a>
-            </li>
-          ))}
-        </ol>
-      </nav>
+        <nav className="tracklist" aria-label="Sections">
+          <ol>
+            {tracks.map((t) => (
+              <li key={t.id}>
+                <a href={`#${t.id}`} aria-current={current === t.id ? 'true' : undefined}>
+                  <span>{t.num}</span>
+                  {t.title}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
 
-      <InCards value={cards}>
-        <OnStage value={onStage}>
-          {/* Turning a phone swaps the deck and the page, which lay their charts out differently: start them over */}
-          <main key={cards ? 'cards' : 'page'} className="dash__main" data-dealt={cards ? dealt : undefined} {...swipeHandlers}>
-            {!cards && (
-              <Hero
-                summary={summary}
-                year={year}
-                span={span}
-                isSample={isSample}
-                topArtist={topArtists[0]}
-                hours={hours}
-                newArtists={newArtists}
-                onPlay={() => openTour(true)}
-                onPoster={() => makePoster(posterDesign)}
-              />
-            )}
-
-            {!hasMusic && <p className="empty">There’s no music in this period, only podcasts. Most of the visuals below need songs.</p>}
-
-            <Side label="Side A" title={SIDES.A} />
-
-            <Chapter id="record" num="A1" title="The Record" hint={`${formatNumber(summary.totalMs / 3_600_000)} hours, a ring for every day. Drag the needle, pinch to zoom.`} lede="Every day you listened, pressed into vinyl. Each groove represents a day, one arc per song, placed by the time it played.">
-              <Vinyl
-                key={viewKey}
-                plays={plays}
-                model={record}
-                slotColors={slotColors}
-                legend={legend}
-                title={recordTitle}
-                subtitle={recordSubtitle}
-                onPoster={() => makePoster('record')}
-                learned={scrubLearned}
-                onLearned={() => setScrubLearned(true)}
-              />
-            </Chapter>
-
-            <Chapter
-              id="eras"
-              num="A2"
-              title="Eras"
-              hint="Who ruled your listening, and when."
-              lede="Who ruled your listening, and when."
-              table={() => <RiverTable bins={bins} totals={totals} artists={legend} />}
-            >
-              {hasMusic ? <River key={viewKey} bins={bins} totals={totals} eras={eras} artists={legend} colors={colors} /> : <NotEnough />}
-            </Chapter>
-
-            <Chapter
-              id="race"
-              num="A3"
-              title="The Race"
-              hint={`Hours per artist, raced ${bins.size} by ${bins.size}.`}
-              lede={`Total hours per artist, replayed ${bins.size} by ${bins.size}. Watch who pulls ahead.`}
-            >
-              {race.names.length > 1 ? <Race key={viewKey} bins={bins} race={race} colors={colors} /> : <NotEnough />}
-            </Chapter>
-
-            <Side label="Side B" title={SIDES.B} />
-
-            <Chapter
-              id="clock"
-              num="B1"
-              title="Around the Clock"
-              hint="Drag across the clock or the dots to read any hour."
-              lede="When the music happens, and who you reach for at each hour. Midnight is at the top."
-              table={() => <ClockTable hours={hours} />}
-            >
-              <Clock hours={hours} parts={parts} grid={grid} plays={plays} />
-            </Chapter>
-
-            <Chapter id="days" num="B2" title="Every Day" hint="Tap a day to see everything you played." lede="A square for every day. The brighter it glows, the longer you listened. Tap a day to see what you played.">
-              <Calendar days={days} years={year === null ? years : [year]} plays={plays} firstHeard={firstHeard} colors={colors} />
-            </Chapter>
-
-            <Chapter
-              id="lovehate"
-              num="B3"
-              title="Love / Hate"
-              hint="The song you let play, and the one you skip."
-              lede={`The song you let play the most against the one you skip the most. Then your ${formatNumber(songs.length)} most-played songs: how often you start them (across) and how often you bail (up).`}
-              table={() => <LoveHateTable songs={songs} />}
-            >
-              {songs.length >= 5 ? <LoveHate key={viewKey} songs={songs} skipRate={summary.skipRate} plays={plays} /> : <NotEnough />}
-            </Chapter>
-
-            <Side label="Side C" title={SIDES.C} />
-
-            <Chapter
-              id="genres"
-              num="C1"
-              title="Genres"
-              hint="What you listen to most, and what you skip."
-              lede={<>Your listening sorted into genres, by time or by how often you skip. Songs with several genres count toward each, split evenly. {isSample ? 'The demo uses fictional song genres.' : <>Tags from <a href="https://musicbrainz.org">MusicBrainz</a>, filtered and reformatted under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>. This small catalogue covers only some songs.</>}</>}
-              table={() => <GenresTable stats={genres} />}
-            >
-              <Genres key={viewKey} stats={genres} />
-            </Chapter>
-
-            <Chapter
-              id="constellation"
-              num="C2"
-              title="Constellation"
-              hint="Artists you play back to back, joined up. Tap a star, pinch to zoom."
-              lede="Your top artists as stars, joined when you play one straight after the other. Clusters are your scenes."
-              table={() => <ConstellationTable links={graph.links} />}
-            >
-              {graph.nodes.length >= 3 ? <Constellation nodes={graph.nodes} links={graph.links} colors={colors} /> : <NotEnough />}
-            </Chapter>
-
-            <Chapter
-              id="pulse"
-              num="C3"
-              title="Pulse"
-              hint="Your top artists over time, one line each. Tap a line."
-              lede="Your top artists over time, one line each."
-            >
-              {pulseLines.length >= 2 ? (
-                <Pulse
-                  key={viewKey}
-                  bins={bins}
-                  totals={totals}
-                  artists={pulseLines}
-                  firstHeard={firstHeard}
-                  colors={colors}
+        <InCards value={cards}>
+          <OnStage value={onStage}>
+            {/* Turning a phone swaps the deck and the page, which lay their charts out differently: start them over */}
+            <main key={cards ? 'cards' : 'page'} className="dash__main" data-dealt={cards ? dealt : undefined} {...swipeHandlers}>
+              {!cards && (
+                <Hero
+                  summary={summary}
+                  year={year}
+                  span={span}
+                  isSample={isSample}
+                  topArtist={topArtists.find((r) => r.label !== UNKNOWN_GENRE)}
+                  hours={hours}
+                  newArtists={newArtists}
+                  onPlay={() => openTour(true)}
+                  onPoster={() => makePoster(posterDesign)}
                 />
-              ) : (
-                <NotEnough />
               )}
-            </Chapter>
 
-            <Chapter id="charts" num="C4" title="The Charts" hint="Your rankings." lede="The rankings. Every cover is generated from the name, since nothing is fetched from anywhere.">
-              <TopCharts plays={plays} onHide={(artist) => hideArtists([artist])} hidden={hidden} onManage={() => setLauncher('artists')} />
-            </Chapter>
+              {!hasMusic && <p className="empty">There’s no music in this period, only podcasts. Most of the visuals below need songs.</p>}
 
-            <Side label="Side D" title={SIDES.D} />
+              <Side label="Side A" title={SIDES.A} />
 
-            <Chapter id="notes" num="D1" title="Liner Notes" hint="The small print: what you’d never have guessed." lede="The back of the sleeve: who played on this record, and how well you know your own habits.">
-              <LinerNotes
-                takes={lines}
-                fun={fun}
-                rec={rec}
-                summary={summary}
-                devices={devices}
-                topArtists={topArtists}
-                hours={hours}
-                wear={wear}
-                period={year === null ? span : String(year)}
-                isAllTime={year === null}
-              />
-            </Chapter>
+              <Chapter id="record" num="A1" title="The Record" hint={`${formatNumber(summary.totalMs / 3_600_000)} hours, a ring for every day. Drag the needle, pinch to zoom.`} lede={isGenre ? "Every day you listened, pressed into vinyl. Each groove is a day; each song’s arc shares its length evenly between its genres." : "Every day you listened, pressed into vinyl. Each groove represents a day, one arc per song, placed by the time it played."}>
+                <Vinyl
+                  key={viewKey}
+                  plays={plays}
+                  model={record}
+                  slotColors={slotColors}
+                  legend={legend}
+                  title={recordTitle}
+                  subtitle={recordSubtitle}
+                  onPoster={() => makePoster('record')}
+                  learned={scrubLearned}
+                  onLearned={() => setScrubLearned(true)}
+                />
+              </Chapter>
 
-            <Chapter
-              id="poster"
-              num="D2"
-              title="The Poster"
-              hint="Touch and hold the poster to save it."
-              lede="Take it home. Pick a design, a size and a background, then download it or send it straight from your phone."
-            >
-              <PosterStudio data={posterData} design={posterDesign} onDesign={setPosterDesign} />
-            </Chapter>
+              <Chapter
+                id="eras"
+                num="A2"
+                title="Eras"
+                hint={isGenre ? 'Which genres ruled your listening, and when.' : 'Who ruled your listening, and when.'}
+                lede={isGenre ? 'Which genres ruled your listening, and when.' : 'Who ruled your listening, and when.'}
+                table={() => <RiverTable bins={bins} totals={totals} artists={legend} />}
+              >
+                {hasMusic ? <River key={viewKey} bins={bins} totals={totals} eras={eras} artists={legend} colors={colors} /> : <NotEnough />}
+              </Chapter>
 
-            {tourStep !== null && <UpNext tracks={tourTracks} sides={SIDES} step={tourStep} onStep={setTourStep} onFinish={() => closeTour(true)} />}
+              <Chapter
+                id="race"
+                num="A3"
+                title="The Race"
+                hint={`Hours per ${grouping.singular}, raced ${bins.size} by ${bins.size}.`}
+                lede={`Total hours per ${grouping.singular}, replayed ${bins.size} by ${bins.size}. Watch who pulls ahead.`}
+              >
+                {race.names.length >= (isGenre ? 1 : 2) ? <Race key={viewKey} bins={bins} race={race} colors={colors} /> : <NotEnough />}
+              </Chapter>
 
-            {!cards && (
-              <footer className="dash__footer">
-                <p>
-                  <strong>Pressed locally.</strong> Everything on this page was worked out inside this browser tab. Nothing was uploaded.
-                </p>
-                <details className="load-details">
-                  <summary>Load details</summary>
-                  <ul>
-                    {result.sources.includes('apple') && (
+              <Side label="Side B" title={SIDES.B} />
+
+              <Chapter
+                id="clock"
+                num="B1"
+                title="Around the Clock"
+                hint="Drag across the clock or the dots to read any hour."
+                lede={`When the music happens, and ${isGenre ? 'which genre' : 'who'} you reach for at each hour. Midnight is at the top.`}
+                table={() => <ClockTable hours={hours} />}
+              >
+                <Clock hours={hours} parts={parts} grid={grid} plays={plays} />
+              </Chapter>
+
+              <Chapter id="days" num="B2" title="Every Day" hint="Tap a day to see everything you played." lede="A square for every day. The brighter it glows, the longer you listened. Tap a day to see what you played.">
+                <Calendar days={days} years={year === null ? years : [year]} plays={plays} firstHeard={firstHeard} colors={colors} />
+              </Chapter>
+
+              <Chapter
+                id="lovehate"
+                num="B3"
+                title="Love / Hate"
+                hint={isGenre ? "The genres you skip least and most." : "The song you let play, and the one you skip."}
+                lede={
+                  isGenre
+                    ? `The genre you skip least against the one you skip most. Then your ${formatNumber(songs.length)} most-played genres: how often you start them (across, weighted by each song's share) and how often you bail (up).`
+                    : `The song you let play the most against the one you skip the most. Then your ${formatNumber(songs.length)} most-played songs: how often you start them (across) and how often you bail (up).`
+                }
+                table={() => <LoveHateTable songs={songs} />}
+              >
+                {songs.length >= (isGenre ? 1 : 5) ? <LoveHate key={viewKey} songs={songs} skipRate={summary.skipRate} plays={plays} /> : <NotEnough />}
+              </Chapter>
+
+              <Side label="Side C" title={SIDES.C} />
+
+              <Chapter
+                id="genres"
+                num="C1"
+                title={sentenceCase(noun)}
+                hint="What you listen to most, and what you skip."
+                lede={
+                  isGenre ? (
+                    <>Your listening sorted into genres, by time or by how often you skip. Songs with several genres count toward each, split evenly. {isSample ? 'The demo uses fictional song genres.' : <>Tags from <a href="https://musicbrainz.org">MusicBrainz</a>, filtered and reformatted under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>. {formatNumber(catalogueInfo.recordings)} recordings across {formatNumber(catalogueInfo.artists)} credited artist names and {formatNumber(catalogueInfo.genres)} genres. Untagged songs stay unknown.</>}</>
+                  ) : (
+                    'Your listening sorted by artist, by time or by how often you skip.'
+                  )
+                }
+                table={() => <GenresTable stats={genres} />}
+              >
+                <Genres key={viewKey} stats={genres} />
+              </Chapter>
+
+              <Chapter
+                id="constellation"
+                num="C2"
+                title="Constellation"
+                hint={`${sentenceCase(noun)} you play back to back, joined up. Tap a star, pinch to zoom.`}
+                lede={`Your top ${noun} as stars, joined when you play one straight after the other. Clusters are your scenes.`}
+                table={() => <ConstellationTable links={graph.links} />}
+              >
+                {graph.nodes.length >= (isGenre ? 1 : 3) ? <Constellation key={viewKey} nodes={graph.nodes} links={graph.links} colors={colors} /> : <NotEnough />}
+              </Chapter>
+
+              <Chapter
+                id="pulse"
+                num="C3"
+                title="Pulse"
+                hint={`Your top ${noun} over time, one line each. Tap a line.`}
+                lede={`Your top ${noun} over time, one line each.`}
+              >
+                {pulseLines.length >= (isGenre ? 1 : 2) ? (
+                  <Pulse
+                    key={viewKey}
+                    bins={bins}
+                    totals={totals}
+                    artists={pulseLines}
+                    firstHeard={firstHeard}
+                    colors={colors}
+                  />
+                ) : (
+                  <NotEnough />
+                )}
+              </Chapter>
+
+              <Chapter id="charts" num="C4" title="The Charts" hint="Your rankings." lede="The rankings. Every cover is generated from the name, since nothing is fetched from anywhere.">
+                <TopCharts plays={plays} onHide={(artist) => hideArtists([artist])} hidden={hidden} onManage={() => setLauncher('artists')} />
+              </Chapter>
+
+              <Side label="Side D" title={SIDES.D} />
+
+              <Chapter id="notes" num="D1" title="Liner Notes" hint="The small print: what you’d never have guessed." lede="The back of the sleeve: who played on this record, and how well you know your own habits.">
+                <LinerNotes
+                  takes={lines}
+                  fun={fun}
+                  rec={rec}
+                  summary={summary}
+                  devices={devices}
+                  topArtists={topArtists}
+                  hours={hours}
+                  wear={wear}
+                  period={year === null ? span : String(year)}
+                  isAllTime={year === null}
+                />
+              </Chapter>
+
+              <Chapter
+                id="poster"
+                num="D2"
+                title="The Poster"
+                hint="Touch and hold the poster to save it."
+                lede="Take it home. Pick a design, a size and a background, then download it or send it straight from your phone."
+              >
+                <PosterStudio data={posterData} design={posterDesign} onDesign={setPosterDesign} />
+              </Chapter>
+
+              {tourStep !== null && <UpNext tracks={tourTracks} sides={SIDES} step={tourStep} onStep={setTourStep} onFinish={() => closeTour(true)} />}
+
+              {!cards && (
+                <footer className="dash__footer">
+                  <p>
+                    <strong>Pressed locally.</strong> Everything on this page was worked out inside this browser tab. Nothing was uploaded.
+                  </p>
+                  <details className="load-details">
+                    <summary>Load details</summary>
+                    <ul>
+                      {result.sources.includes('apple') && (
+                        <li>
+                          Apple Music support is in beta. If something looks wrong,{' '}
+                          <a href="https://github.com/CarsonGodwin/on-record/issues" target="_blank" rel="noreferrer">
+                            report it on GitHub
+                          </a>{' '}
+                          with these details.
+                        </li>
+                      )}
                       <li>
-                        Apple Music support is in beta. If something looks wrong,{' '}
-                        <a href="https://github.com/CarsonGodwin/on-record/issues" target="_blank" rel="noreferrer">
-                          report it on GitHub
-                        </a>{' '}
-                        with these details.
+                        {result.filesRead.length} file{result.filesRead.length === 1 ? '' : 's'} read: {result.filesRead.join(', ')}
                       </li>
-                    )}
-                    <li>
-                      {result.filesRead.length} file{result.filesRead.length === 1 ? '' : 's'} read: {result.filesRead.join(', ')}
-                    </li>
-                    <li>
-                      {formatNumber(result.skippedRows)} rows without track info ignored ({skippedRowsHint(result.sources)})
-                    </li>
-                    {applied.filter.musicOnly && otherPlays > 0 && <li>{formatNumber(otherPlays)} podcast and audiobook plays left out (Music only)</li>}
-                    {applied.filter.hidden.size > 0 && (
                       <li>
-                        {formatNumber(hiddenPlays)} plays by {applied.filter.hidden.size} hidden artist{applied.filter.hidden.size === 1 ? '' : 's'} left out
+                        {formatNumber(result.skippedRows)} rows without track info ignored ({skippedRowsHint(result.sources)})
                       </li>
-                    )}
-                    {result.duplicateRows > 0 && <li>{formatNumber(result.duplicateRows)} duplicate rows ignored</li>}
-                    {result.unmatchedArtists > 0 && (
-                      <li>
-                        {formatNumber(result.unmatchedArtists)} Apple Music plays had no artist anywhere in the export.{' '}
-                        {applied.filter.hidden.has(UNMATCHED_ARTIST)
-                          ? `They’re hidden as “${UNMATCHED_ARTIST}”, and Hide Artists… shows them again.`
-                          : `They show as “${UNMATCHED_ARTIST}”.`}
-                      </li>
-                    )}
-                    {noShuffle > 0 && (
-                      <li>{formatNumber(noShuffle)} Apple Music plays don’t say whether shuffle was on, so shuffle stats leave them out</li>
-                    )}
-                    {result.warnings.map((w) => (
-                      <li key={w}>{w}</li>
-                    ))}
-                  </ul>
-                </details>
-                <p className="colophon">
-                  My Listening Record is open source.{' '}
-                  <a href="https://github.com/CarsonGodwin/on-record" target="_blank" rel="noreferrer">
-                    Star it, report a bug or support it on GitHub
-                  </a>
-                  .
-                </p>
-                <p className="disclaimer">
-                  My Listening Record is an independent project, not affiliated with, endorsed by or sponsored by Spotify AB or Apple Inc.
-                  Spotify is a trademark of Spotify AB. Apple Music is a trademark of Apple Inc.
-                </p>
-              </footer>
-            )}
-          </main>
-        </OnStage>
-      </InCards>
+                      {applied.filter.musicOnly && otherPlays > 0 && <li>{formatNumber(otherPlays)} podcast and audiobook plays left out (Music only)</li>}
+                      {applied.filter.hidden.size > 0 && (
+                        <li>
+                          {formatNumber(hiddenPlays)} plays by {applied.filter.hidden.size} hidden artist{applied.filter.hidden.size === 1 ? '' : 's'} left out
+                        </li>
+                      )}
+                      {result.duplicateRows > 0 && <li>{formatNumber(result.duplicateRows)} duplicate rows ignored</li>}
+                      {result.unmatchedArtists > 0 && (
+                        <li>
+                          {formatNumber(result.unmatchedArtists)} Apple Music plays had no artist anywhere in the export.{' '}
+                          {applied.filter.hidden.has(UNMATCHED_ARTIST)
+                            ? `They’re hidden as “${UNMATCHED_ARTIST}”, and Hide Artists… shows them again.`
+                            : `They show as “${UNMATCHED_ARTIST}”.`}
+                        </li>
+                      )}
+                      {noShuffle > 0 && (
+                        <li>{formatNumber(noShuffle)} Apple Music plays don’t say whether shuffle was on, so shuffle stats leave them out</li>
+                      )}
+                      {result.warnings.map((w) => (
+                        <li key={w}>{w}</li>
+                      ))}
+                    </ul>
+                  </details>
+                  <p className="colophon">
+                    My Listening Record is open source.{' '}
+                    <a href="https://github.com/CarsonGodwin/on-record" target="_blank" rel="noreferrer">
+                      Star it, report a bug or support it on GitHub
+                    </a>
+                    .
+                  </p>
+                  <p className="disclaimer">
+                    My Listening Record is an independent project, not affiliated with, endorsed by or sponsored by Spotify AB or Apple Inc.
+                    Spotify is a trademark of Spotify AB. Apple Music is a trademark of Apple Inc.
+                  </p>
+                </footer>
+              )}
+            </main>
+          </OnStage>
+        </InCards>
 
-      {cards && (
-        <CardNav
-          tracks={TRACKS}
+        {cards && (
+          <CardNav
+            tracks={tracks}
+            sides={SIDES}
+            deck={tourTracks}
+            step={cardStep}
+            onStep={setCardStep}
+            onJump={jumpTo}
+            onPoster={() => makePoster(posterDesign)}
+            onReset={onReset}
+          />
+        )}
+
+        <Launcher
+          mode={launcher}
+          onMode={setLauncher}
+          tracks={tracks}
           sides={SIDES}
-          deck={tourTracks}
-          step={cardStep}
-          onStep={setCardStep}
+          years={years}
+          year={year}
+          musicOnly={chosen.musicOnly}
+          artists={musicArtists}
+          hidden={hidden}
           onJump={jumpTo}
-          onPoster={() => makePoster(posterDesign)}
-          onReset={onReset}
+          onYear={pickYear}
+          onHide={hideArtists}
+          onUnhide={unhideArtists}
+          onSettings={openSettings}
+          onReset={clearData}
         />
-      )}
-
-      <Launcher
-        mode={launcher}
-        onMode={setLauncher}
-        tracks={TRACKS}
-        sides={SIDES}
-        years={years}
-        year={year}
-        musicOnly={chosen.musicOnly}
-        artists={musicArtists}
-        hidden={hidden}
-        onJump={jumpTo}
-        onYear={pickYear}
-        onHide={hideArtists}
-        onUnhide={unhideArtists}
-        onSettings={openSettings}
-        onReset={clearData}
-      />
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => {
-          setSettingsOpen(false)
-          setLauncher('root')
-        }}
-        onGone={() => setSettingsOpen(false)}
-        musicOnly={musicOnly}
-        onMusicOnly={setMusicOnly}
-        otherPlays={otherPlays}
-        hasAnyMusic={hasAnyMusic}
-      />
-      {/* Paints before the charts are worked out again, so the moment that takes doesn't look like a hang */}
-      <p className="dash__updating" role="status">
-        {updating ? 'Updating the charts…' : ''}
-      </p>
-
-      {tourStep !== null && (
-        <Tour
-          tracks={tourTracks}
-          sides={SIDES}
-          step={tourStep}
-          onStep={setTourStep}
-          onClose={() => closeTour()}
-          topRef={tourTopRef}
+        <SettingsPanel
+          open={settingsOpen}
+          onClose={() => {
+            setSettingsOpen(false)
+            setLauncher('root')
+          }}
+          onGone={() => setSettingsOpen(false)}
+          musicOnly={musicOnly}
+          onMusicOnly={setMusicOnly}
+          otherPlays={otherPlays}
+          hasAnyMusic={hasAnyMusic}
         />
-      )}
-    </div>
+        {/* Paints before the charts are worked out again, so the moment that takes doesn't look like a hang */}
+        <p className="dash__updating" role="status">
+          {updating ? 'Updating the charts…' : ''}
+        </p>
+
+        {tourStep !== null && (
+          <Tour
+            tracks={tourTracks}
+            sides={SIDES}
+            step={tourStep}
+            onStep={setTourStep}
+            onClose={() => closeTour()}
+            topRef={tourTopRef}
+          />
+        )}
+      </div>
+    </GroupingContext>
   )
 }
+
+/** "genres" to "Genres" */
+const sentenceCase = (word: string) => word[0].toUpperCase() + word.slice(1)
 
 function NotEnough() {
   return <p className="empty">Not enough music in this period to draw this one.</p>

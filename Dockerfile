@@ -1,8 +1,10 @@
 FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS catalogue
 WORKDIR /app
-COPY scripts/build-genres.mjs ./scripts/build-genres.mjs
-ARG GENRE_PAGES=5
-RUN mkdir -p src/data/catalogue && node scripts/build-genres.mjs "$GENRE_PAGES"
+RUN apk add --no-cache python3
+COPY scripts/build-genres-bulk.py ./scripts/build-genres-bulk.py
+ARG MUSICBRAINZ_SNAPSHOT=latest
+RUN --mount=type=cache,id=musicbrainz-archives,target=/var/cache/musicbrainz,sharing=locked \
+    python3 scripts/build-genres-bulk.py --snapshot "$MUSICBRAINZ_SNAPSHOT" --cache-dir /var/cache/musicbrainz
 
 FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS build
 WORKDIR /app

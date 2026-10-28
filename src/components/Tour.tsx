@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import type { Grouping } from '../data/grouping'
+import { useGrouping } from '../lib/grouping'
 import { COARSE } from '../lib/pointer'
 import type { Track } from './TrackMenu'
 
@@ -19,55 +21,64 @@ interface Tip {
 
 const TAP = COARSE ? 'Tap' : 'Click'
 
-const TIPS: Record<string, Tip> = {
-  record: {
-    try: COARSE ? 'Hold the record, then drag to skim your days.' : 'Hover the record to skim, click to hold a day.',
-    then: `${TAP} an artist below to light up their grooves.`,
-  },
-  eras: {
-    try: `${TAP} the river to see who led back then.`,
-    then: 'The pills along the top are your eras.',
-  },
-  race: {
-    try: 'Drag the slider to rewind the race.',
-    then: 'Press play to run it again from there.',
-  },
-  clock: {
-    try: `${TAP} an hour on the dial to see who’s on.`,
-    then: `Further down, ${TAP.toLowerCase()} any hour of the week.`,
-  },
-  days: {
-    try: `${TAP} any day to see everything you played.`,
-    then: 'Step through the days with the arrows.',
-  },
-  lovehate: {
-    try: `${TAP} a dot to find out which song it is.`,
-    then: 'Top right: can’t quit them, can’t finish them.',
-  },
-  genres: {
-    try: 'Switch to skip rate to see which genres you bail on.',
-    then: 'The line above the bars says how much of your listening has a genre.',
-  },
-  constellation: {
-    try: `${TAP} a star to light up its scene.`,
-    then: COARSE ? 'Pinch to zoom into a cluster.' : 'Use + to zoom into a cluster.',
-  },
-  pulse: {
-    try: `${TAP} a line to pick out an artist.`,
-    then: 'Drag the slider to ride it through time.',
-  },
-  charts: {
-    try: 'Switch to songs, albums or podcasts.',
-    then: 'Now rank them by plays instead of time.',
-  },
-  notes: {
-    try: `${TAP} Another take for a different line.`,
-    then: 'Scroll down and guess your own habits.',
-  },
-  poster: {
-    try: 'Pick a design, a size and a background.',
-    then: COARSE ? 'Send it straight from here, or save it.' : 'Download it when it looks right.',
-  },
+/** What to try at each stop, in the words of what the page is grouped by (artists or genres) */
+function tipsFor({ mode }: Grouping): Record<string, Tip> {
+  const genre = mode === 'genre'
+  return {
+    record: {
+      try: COARSE ? 'Hold the record, then drag to skim your days.' : 'Hover the record to skim, click to hold a day.',
+      then: `${TAP} ${genre ? 'a genre' : 'an artist'} below to light up ${genre ? 'its' : 'their'} grooves.`,
+    },
+    eras: {
+      try: `${TAP} the river to see ${genre ? 'which genre' : 'who'} led back then.`,
+      then: 'The pills along the top are your eras.',
+    },
+    race: {
+      try: 'Drag the slider to rewind the race.',
+      then: 'Press play to run it again from there.',
+    },
+    clock: {
+      try: `${TAP} an hour on the dial to see ${genre ? 'which genre is' : 'who’s'} on.`,
+      then: `Further down, ${TAP.toLowerCase()} any hour of the week.`,
+    },
+    days: {
+      try: `${TAP} any day to see everything you played.`,
+      then: 'Step through the days with the arrows.',
+    },
+    lovehate: {
+      try: `${TAP} a dot to find out which ${genre ? 'genre' : 'song'} it is.`,
+      then: 'Top right: can’t quit them, can’t finish them.',
+    },
+    genres: genre
+      ? {
+          try: 'Switch to skip rate to see which genres you bail on.',
+          then: 'The line above the bars says how much of your listening has a genre.',
+        }
+      : {
+          try: 'Switch to skip rate to see which artists you bail on.',
+          then: 'Now switch back to see who has most of your time.',
+        },
+    constellation: {
+      try: `${TAP} a star to light up its scene.`,
+      then: COARSE ? 'Pinch to zoom into a cluster.' : 'Use + to zoom into a cluster.',
+    },
+    pulse: {
+      try: `${TAP} a line to pick out ${genre ? 'a genre' : 'an artist'}.`,
+      then: 'Drag the slider to ride it through time.',
+    },
+    charts: {
+      try: 'Switch to songs, albums or podcasts.',
+      then: 'Now rank them by plays instead of time.',
+    },
+    notes: {
+      try: `${TAP} Another take for a different line.`,
+      then: 'Scroll down and guess your own habits.',
+    },
+    poster: {
+      try: 'Pick a design, a size and a background.',
+      then: COARSE ? 'Send it straight from here, or save it.' : 'Download it when it looks right.',
+    },
+  }
 }
 
 interface Props {
@@ -90,7 +101,7 @@ export function Tour({ tracks, sides, step, onStep, onClose, topRef }: Props) {
   const track = tracks.find((t) => t.id === id)
   const side = track?.num[0]
   const last = step === stops.length - 1
-  const tip = TIPS[id]
+  const tip = tipsFor(useGrouping())[id]
   // The stops where you've tried something, and the ones whose tip you've put away
   const [tried, setTried] = useState<ReadonlySet<string>>(() => new Set())
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set())

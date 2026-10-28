@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import type { SongStat } from '../data/insights'
-import { hatedFact, loveHate, lovedFact, type LoveHatePick, type SongTally } from '../data/lovehate'
-import { formatDuration, formatNumber, formatPercent } from '../lib/format'
+import { formatSkipTime, hatedFact, loveHate, lovedFact, type LoveHatePick, type SongTally } from '../data/lovehate'
+import { formatDuration, formatWeightedNumber, formatNumber, formatPercent } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { usePageScroll, useWidth } from '../lib/hooks'
 import { leaveUnlessTouch } from '../lib/pointer'
 import { SERIES } from '../lib/palette'
@@ -14,6 +15,8 @@ import { FloatTip } from './ui'
  * "Love / Hate": the song you let play the most against the one you skip the
  * most, each with two runners-up. Below that on the page, every one of your
  * most-played songs by how often you start it (across) and skip it (up).
+ * Grouped by genre, the "songs" are genres, and a song that has several
+ * counts toward each, so starts and skips are weighted shares, not tallies.
  */
 
 const M = { top: 20, right: 12, bottom: 40, left: 42 }
@@ -32,16 +35,25 @@ interface Props {
 
 const noop = () => {}
 
+/** What the sentences under each side say about one group, as the weighted shares they are */
+const weightedLoved = (s: SongTally) => `You let it play ${formatWeightedNumber(s.kept)} of ${formatWeightedNumber(s.starts)} weighted starts.`
+function weightedHated(s: SongTally) {
+  const ms = s.skipMedianMs
+  const when = ms === null ? '' : ms < 1000 ? ', typically within a second' : `, typically ${formatSkipTime(ms)} in`
+  return `Skipped ${formatWeightedNumber(s.skips)} of ${formatWeightedNumber(s.starts)} weighted starts${when}.`
+}
+
 export function LoveHate({ songs, skipRate, plays }: Props) {
   const cards = useContext(InCards)
-  const pick = useMemo(() => loveHate(plays), [plays])
+  const grouping = useGrouping()
+  const pick = useMemo(() => loveHate(plays, 2, grouping), [plays, grouping])
   const marks = useMemo(
     () =>
       [
-        { key: pick.loved[0]?.key, tag: 'Most loved' },
+        { key: pick.loved[0]?.key, tag: grouping.mode === 'genre' ? 'Least skipped' : 'Most loved' },
         { key: pick.hated[0]?.key, tag: 'Most skipped' },
       ].filter((m): m is { key: string; tag: string } => !!m.key),
-    [pick],
+    [pick, grouping.mode],
   )
   const duel = <Duel pick={pick} />
   // A phone gets the two songs alone; the scatter stays on the page, with the two songs marked on it
@@ -56,22 +68,24 @@ export function LoveHate({ songs, skipRate, plays }: Props) {
 
 /** Most loved against most skipped, like the two sides of a single */
 function Duel({ pick }: { pick: LoveHatePick }) {
+  const { mode } = useGrouping()
+  const genre = mode === 'genre'
   const n = pick.minStarts
   return (
     <div className="duel">
       <DuelSide
-        title="Most loved"
+        title={genre ? "Least skipped" : "Most loved"}
         swatch={KEPT}
         songs={pick.loved}
-        fact={lovedFact}
-        empty={`Every song you started ${n} or more times got skipped more than 1 time in 5.`}
+        fact={genre ? weightedLoved : lovedFact}
+        empty={genre ? `No known genre has ${n} weighted starts yet.` : `Every song you started ${n} or more times got skipped more than 1 time in 5.`}
       />
       <DuelSide
         title="Most skipped"
         swatch={SKIPPED}
         songs={pick.hated}
-        fact={hatedFact}
-        empty={`Nothing you started ${n} or more times got skipped more often than not.`}
+        fact={genre ? weightedHated : hatedFact}
+        empty={genre ? `No known genre has ${n} weighted starts yet.` : `Nothing you started ${n} or more times got skipped more often than not.`}
       />
     </div>
   )
@@ -87,6 +101,7 @@ interface SideProps {
 }
 
 function DuelSide({ title, swatch, songs, fact, empty }: SideProps) {
+  const genre = useGrouping().mode === 'genre'
   const [hero, ...rest] = songs
   return (
     <section className="duel__side" aria-label={title}>
@@ -100,7 +115,7 @@ function DuelSide({ title, swatch, songs, fact, empty }: SideProps) {
             <Cover name={`${hero.title}|${hero.artist}`} size={96} className="duel__cover" />
             <div className="duel__info">
               <strong className="duel__title">{hero.title}</strong>
-              <span className="duel__artist">{hero.artist}</span>
+              {hero.artist && <span className="duel__artist">{hero.artist}</span>}
               <p className="duel__fact">{fact(hero)}</p>
               <div className="duel__bar" aria-hidden="true">
                 <i style={{ flexGrow: hero.kept, background: KEPT }} />
@@ -113,11 +128,11 @@ function DuelSide({ title, swatch, songs, fact, empty }: SideProps) {
               {rest.map((s) => (
                 <li key={s.key}>
                   <span className="duel__song">
-                    <span className="duel__song-title">{s.title}</span> <span className="duel__song-artist">{s.artist}</span>
+                    <span className="duel__song-title">{s.title}</span> {s.artist && <span className="duel__song-artist">{s.artist}</span>}
                   </span>
                   {/* Both sides count skips, so the numbers read the same way: few on one side, most of them on the other */}
                   <span className="duel__count">
-                    {formatNumber(s.skips)} of {formatNumber(s.starts)} skipped
+                    {genre ? formatWeightedNumber(s.skips) : formatNumber(s.skips)} of {genre ? formatWeightedNumber(s.starts) : formatNumber(s.starts)} {genre && 'weighted starts '}skipped
                   </span>
                 </li>
               ))}
@@ -139,6 +154,8 @@ interface ScatterProps {
 }
 
 function Scatter({ songs, skipRate, marks }: ScatterProps) {
+  const { mode, plural } = useGrouping()
+  const genre = mode === 'genre'
   const ref = useRef<HTMLDivElement>(null)
   const width = useWidth(ref, 900)
   const height = width < 600 ? 380 : 460
@@ -218,7 +235,7 @@ function Scatter({ songs, skipRate, marks }: ScatterProps) {
         width={width}
         height={height}
         role="img"
-        aria-label={`Scatter plot of your ${songs.length} most played songs by plays and skip rate`}
+        aria-label={`Scatter plot of your ${songs.length} most played ${genre ? plural : 'songs'} by ${genre ? 'weighted plays' : 'plays'} and skip rate`}
         onPointerMove={onMove}
         onPointerDown={onMove}
         onPointerLeave={leaveUnlessTouch(clearHover)}
@@ -241,7 +258,7 @@ function Scatter({ songs, skipRate, marks }: ScatterProps) {
           </text>
         ))}
         <text x={M.left + innerW} y={height - 4} textAnchor="end" className="axis-title">
-          plays →
+          {genre ? 'weighted plays →' : 'plays →'}
         </text>
         <text x={12} y={M.top - 6} className="axis-title">
           ↑ skipped
@@ -296,9 +313,9 @@ function Scatter({ songs, skipRate, marks }: ScatterProps) {
       {hovered && shown && (
         <FloatTip x={shown.x} y={shown.y} onDismiss={pinned ? noop : clearHover}>
           <span className="float-tip__title">{hovered.title}</span>
-          <span>{hovered.artist}</span>
+          {hovered.artist && <span>{hovered.artist}</span>}
           <span className="float-tip__row">
-            Started <b>{formatNumber(hovered.plays)}×</b>
+            {genre ? 'Weighted starts' : 'Started'} <b>{genre ? formatWeightedNumber(hovered.plays) : formatNumber(hovered.plays)}{!genre && '×'}</b>
           </span>
           <span className="float-tip__row">
             Skipped <b>{formatPercent(hovered.skips / hovered.plays)}</b>
@@ -314,13 +331,14 @@ function Scatter({ songs, skipRate, marks }: ScatterProps) {
 }
 
 export function LoveHateTable({ songs }: { songs: SongStat[] }) {
+  const genre = useGrouping().mode === 'genre'
   return (
     <table>
       <thead>
         <tr>
-          <th>Song</th>
-          <th>Artist</th>
-          <th className="num">Plays</th>
+          <th>{genre ? 'Genre' : 'Song'}</th>
+          {!genre && <th>Artist</th>}
+          <th className="num">{genre ? 'Weighted plays' : 'Plays'}</th>
           <th className="num">Skipped</th>
           <th className="num">Time</th>
         </tr>
@@ -329,8 +347,8 @@ export function LoveHateTable({ songs }: { songs: SongStat[] }) {
         {songs.map((s) => (
           <tr key={s.key}>
             <td>{s.title}</td>
-            <td>{s.artist}</td>
-            <td className="num">{formatNumber(s.plays)}</td>
+            {!genre && <td>{s.artist}</td>}
+            <td className="num">{genre ? formatWeightedNumber(s.plays) : formatNumber(s.plays)}</td>
             <td className="num">{formatPercent(s.skips / s.plays)}</td>
             <td className="num">{formatDuration(s.ms)}</td>
           </tr>

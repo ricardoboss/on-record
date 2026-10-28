@@ -1,3 +1,4 @@
+import { ARTIST_GROUPING, type Grouping } from './grouping'
 import type { Play } from '../types'
 import { startDate } from './stats'
 
@@ -83,7 +84,7 @@ interface Tally {
 }
 
 /** For each part of the day, the music artist who stands out most (music only, local time) */
-export function daypartLeans(plays: Play[]): DaypartLean[] {
+export function daypartLeans(plays: Play[], grouping: Grouping = ARTIST_GROUPING): DaypartLean[] {
   const per = WINDOWS.map(() => new Map<string, Tally>())
   const totals = WINDOWS.map(() => ({ ms: 0, plays: 0 }))
   const everywhere = new Map<string, number>()
@@ -91,14 +92,15 @@ export function daypartLeans(plays: Play[]): DaypartLean[] {
   for (const p of plays) {
     if (p.kind !== 'track' || p.msPlayed <= 0) continue
     const i = windowOf(startDate(p).getHours())
-    const t = per[i].get(p.artist)
-    if (t) {
-      t.ms += p.msPlayed
-      t.plays++
-    } else per[i].set(p.artist, { ms: p.msPlayed, plays: 1 })
+    for (const { name, weight } of grouping.members(p)) {
+      const t = per[i].get(name) ?? { ms: 0, plays: 0 }
+      t.ms += p.msPlayed * weight
+      t.plays += weight
+      per[i].set(name, t)
+      everywhere.set(name, (everywhere.get(name) ?? 0) + p.msPlayed * weight)
+    }
     totals[i].ms += p.msPlayed
     totals[i].plays++
-    everywhere.set(p.artist, (everywhere.get(p.artist) ?? 0) + p.msPlayed)
     allMs += p.msPlayed
   }
 

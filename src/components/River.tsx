@@ -3,6 +3,7 @@ import { useCallback, useContext, useMemo, useRef, useState, type PointerEvent, 
 import { eraLength, longestEra, pickEras, spreadLabels } from '../data/eraTimeline'
 import { artistSeries, type Bins, type Era } from '../data/insights'
 import { formatDate, formatDuration, formatHours, formatMonthRange, formatMonthShort, formatMonthYearShort, formatPercent } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { useSize, useWidth } from '../lib/hooks'
 import { COARSE, leaveUnlessTouch } from '../lib/pointer'
 import { colorFor } from '../lib/palette'
@@ -42,6 +43,7 @@ function useStreams(bins: Bins, totals: Map<string, number>[], artists: string[]
 }
 
 function RiverPage({ bins, totals, eras, artists, colors }: Props) {
+  const { singular, plural } = useGrouping()
   const wrapRef = useRef<HTMLDivElement>(null)
   const width = useWidth(wrapRef, 900)
   const height = width < 600 ? 300 : 400
@@ -113,11 +115,11 @@ function RiverPage({ bins, totals, eras, artists, colors }: Props) {
   return (
     <div className="river" ref={wrapRef}>
       <ReadingGuide
-        takeaway={erasTakeaway(bins, eras)}
+        takeaway={erasTakeaway(bins, eras, singular)}
         items={[
           {
             glyph: <rect x={1} y={4} width={26} height={8} rx={4} fill={eras[0] ? colorFor(colors, eras[0].artist) : lead} />,
-            text: 'An era: a stretch when one artist led',
+            text: `An era: a stretch when one ${singular} led`,
           },
           {
             glyph: <path d="M1 7.5C9 7 15 2 27 1.5V14.5C15 14 9 9 1 8.5Z" fill={lead} />,
@@ -130,7 +132,7 @@ function RiverPage({ bins, totals, eras, artists, colors }: Props) {
                 <circle cx={14} cy={8} r={3} fill="currentColor" />
               </>
             ),
-            text: `${COARSE ? 'Tap' : 'Hover'} anywhere for that ${unit}’s top artists`,
+            text: `${COARSE ? 'Tap' : 'Hover'} anywhere for that ${unit}’s top ${plural}`,
           },
         ]}
       />
@@ -138,7 +140,7 @@ function RiverPage({ bins, totals, eras, artists, colors }: Props) {
         width={width}
         height={height}
         role="img"
-        aria-label={`Streamgraph of your top ${artists.length} artists over time`}
+        aria-label={`Streamgraph of your top ${artists.length} ${plural} over time`}
         onPointerMove={onMove}
         onPointerDown={onMove}
         onPointerLeave={leaveUnlessTouch(() => setHover(null))}
@@ -252,6 +254,7 @@ const LABEL_GAP = 4
  * the river for that month's top artists.
  */
 function ErasCard({ bins, totals, eras, artists, colors }: Props) {
+  const { singular, plural } = useGrouping()
   const plotRef = useRef<HTMLDivElement>(null)
   const { width: W, height: H } = useSize(plotRef, { width: 0, height: 0 })
   // The picked era, by its first bin (eras never share one)
@@ -372,14 +375,14 @@ function ErasCard({ bins, totals, eras, artists, colors }: Props) {
             )}
           </>
         ) : (
-          'No one artist stayed on top for long here, so there are no eras. Just a mix.'
+          `No one ${singular} stayed on top for long here, so there are no eras. Just a mix.`
         )}
       </p>
 
       <div className="eras-card__plot" ref={plotRef}>
         {W > 0 && H > 0 && (
           <>
-            <svg width={W} height={H} role="img" aria-label={`Your top ${artists.length} artists over time, oldest at the top, with ${shown.length} eras`}>
+            <svg width={W} height={H} role="img" aria-label={`Your top ${artists.length} ${plural} over time, oldest at the top, with ${shown.length} eras`}>
               {ticks.map((t) => (
                 <g key={t.i}>
                   <text x={0} y={ty(t.i)} className="axis-label eras-card__tick" dominantBaseline="middle">
@@ -479,7 +482,7 @@ function ErasCard({ bins, totals, eras, artists, colors }: Props) {
                 onClick={() => setMonth(null)}
               >
                 <span className="eras-card__readout-title">{binLabel(bins, month)}</span>
-                {monthRows.length === 0 && <span className="eras-card__readout-row">None of your top artists</span>}
+                {monthRows.length === 0 && <span className="eras-card__readout-row">None of your top {plural}</span>}
                 {monthRows.map((r) => (
                   <span key={r.a} className="eras-card__readout-row">
                     <i style={{ background: colorFor(colors, r.a) }} />
@@ -519,8 +522,8 @@ function serifEms(text: string): number {
 }
 
 /** The chart in one sentence: how many eras, the longest, and the latest */
-function erasTakeaway(bins: Bins, eras: Era[]): ReactNode {
-  if (eras.length === 0) return 'No one artist stayed on top for long here, so there are no eras. Just a mix.'
+function erasTakeaway(bins: Bins, eras: Era[], singular: string): ReactNode {
+  if (eras.length === 0) return `No one ${singular} stayed on top for long here, so there are no eras. Just a mix.`
   const longest = eras.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a))
   const latest = eras.reduce((a, b) => (b.start > a.start ? b : a))
   return (

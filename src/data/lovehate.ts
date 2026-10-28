@@ -1,3 +1,4 @@
+import { ARTIST_GROUPING, UNKNOWN_GENRE, type Grouping } from './grouping'
 import { formatNumber } from '../lib/format'
 import type { Play } from '../types'
 import { isSkip, trackKey } from './stats'
@@ -82,9 +83,42 @@ export function tallySongs(plays: Play[]): SongTally[] {
   return [...songs.values()].map(({ tally, skipMs }) => ({ ...tally, skipMedianMs: median(skipMs) }))
 }
 
+/** Genre starts and skips are weighted contributions from original songs. */
+export function tallyGroups(plays: Play[], grouping: Grouping): SongTally[] {
+  const groups = new Map<string, { tally: SongTally; skipped: { ms: number; weight: number }[] }>()
+  for (const play of plays) {
+    if (play.kind !== 'track') continue
+    for (const { name, weight } of grouping.members(play)) {
+      const group = groups.get(name) ?? { tally: { key: name, title: name, artist: '', starts: 0, skips: 0, kept: 0, skipMedianMs: null }, skipped: [] }
+      group.tally.starts += weight
+      if (isSkip(play)) {
+        group.tally.skips += weight
+        group.skipped.push({ ms: play.msPlayed, weight })
+      } else group.tally.kept += weight
+      groups.set(name, group)
+    }
+  }
+  return [...groups.values()].map(({ tally, skipped }) => {
+    let cumulative = 0
+    for (const { ms, weight } of skipped.sort((a, b) => a.ms - b.ms)) {
+      cumulative += weight
+      if (cumulative >= tally.skips / 2) { tally.skipMedianMs = ms; break }
+    }
+    return tally
+  })
+}
+
 /** Picks the most loved and most skipped songs, each with up to `runnersUp` more */
-export function loveHate(plays: Play[], runnersUp = 2): LoveHatePick {
-  const songs = tallySongs(plays)
+export function loveHate(plays: Play[], runnersUp = 2, grouping: Grouping = ARTIST_GROUPING): LoveHatePick {
+  const songs = grouping.mode === 'genre' ? tallyGroups(plays, grouping) : tallySongs(plays)
+  if (grouping.mode === 'genre') {
+    const known = songs.filter(s => s.title !== UNKNOWN_GENRE)
+    const minStarts = MIN_STARTS.find(n => known.filter(s => s.starts >= n).length >= 2) ?? MIN_STARTS[MIN_STARTS.length - 1]
+    const pool = known.filter(s => s.starts >= minStarts)
+    // Genre averages rarely cross song-level loved/hated thresholds; compare skip rates directly.
+    const ordered = pool.sort((a, b) => a.skips / a.starts - b.skips / b.starts || b.starts - a.starts || a.title.localeCompare(b.title))
+    return { minStarts, loved: ordered.slice(0, runnersUp + 1), hated: [...ordered].sort((a, b) => b.skips / b.starts - a.skips / a.starts || b.starts - a.starts || a.title.localeCompare(b.title)).slice(0, runnersUp + 1) }
+  }
   const minStarts = MIN_STARTS.find((n) => songs.filter((s) => s.starts >= n).length >= MIN_POOL) ?? MIN_STARTS[MIN_STARTS.length - 1]
   const pool = songs.filter((s) => s.starts >= minStarts)
   const byName = (a: SongTally, b: SongTally) => a.title.localeCompare(b.title) || a.artist.localeCompare(b.artist)
