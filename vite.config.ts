@@ -56,11 +56,6 @@ function contentSecurityPolicy(): Plugin {
     ],
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: '_headers', source: HEADERS })
-      // Docker packages an existing dist/, so it gets headers from the same build as the page.
-      const nginxHeaders = Object.entries(SECURITY_HEADERS)
-        .map(([name, value]) => `add_header ${name} ${JSON.stringify(value)} always;`)
-        .join('\n')
-      this.emitFile({ type: 'asset', fileName: 'nginx-headers.conf', source: `${nginxHeaders}\n` })
     },
   }
 }

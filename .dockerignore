@@ -4,5 +4,6 @@
 !.dockerignore
 !docker/
 !docker/nginx.conf
+!docker/headers.awk
 !dist/
 !dist/**

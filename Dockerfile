@@ -2,8 +2,14 @@
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY dist/ /usr/share/nginx/html/
-COPY dist/nginx-headers.conf /etc/nginx/security-headers.conf
+COPY dist/ /srv/on-record/
+COPY docker/headers.awk /usr/local/share/on-record/headers.awk
+
+# Adapt the existing static-host headers; this does not compile or fetch app data.
+USER root
+RUN test -s /srv/on-record/index.html \
+    && awk -f /usr/local/share/on-record/headers.awk /srv/on-record/_headers \
+       > /etc/nginx/security-headers.conf
 
 USER nginx
 EXPOSE 8080

@@ -93,9 +93,9 @@ docker run --rm -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m 
   --cap-drop=ALL --security-opt=no-new-privileges on-record
 ```
 
-Open `http://localhost:8080`. The image contains the prebuilt site and an unprivileged Alpine NGINX server. It runs no npm commands and retrieves no genre data. A missing `dist/` or `dist/nginx-headers.conf` makes the image build fail; rebuild the app first. The Docker context excludes source files, listening exports and dependencies.
+Open `http://localhost:8080`. The image contains the prebuilt site and an unprivileged Alpine NGINX server. It runs no npm commands and retrieves no genre data. The build context must contain `dist/index.html` and the existing `dist/_headers` output; run `npm run build` before `docker build` (or before `docker compose build`). No Docker-specific build artifact is required. The Docker context excludes source files, listening exports and dependencies.
 
-Hashed assets use immutable one-year caching; HTML and other files require revalidation. NGINX compresses text responses and serves the build's security headers, including CSP. Both Cloudflare's `_headers` and Docker's `nginx-headers.conf` are generated from the same header definitions in `vite.config.ts`. Put the container behind a TLS reverse proxy for public hosting.
+Hashed assets use immutable one-year caching; HTML and other files require revalidation. NGINX compresses text responses and serves the build's security headers, including CSP. Image packaging translates the global headers in `dist/_headers` into NGINX configuration, keeping `vite.config.ts` as the single source of header definitions. Put the container behind a TLS reverse proxy for public hosting.
 
 ## Project structure
 
