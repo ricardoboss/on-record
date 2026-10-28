@@ -34,3 +34,9 @@ sorted lookup rather than a second full Map index. Ordinary app development keep
 the committed small snapshot. Bulk pipeline tests use tiny synthetic archives;
 real archives and production Docker builds must not be downloaded/run on Ricardo's
 workstation. Full-scale resource usage requires validation on the build host.
+
+The production build streams the catalogue into a separate content-hashed local
+JavaScript module. It bypasses Vite's parsing/minification pipeline so chunk
+rendering does not hold multiple copies of the full dataset. Development and
+tests still use the small raw JSON import. Browser memory for the full catalogue
+and bulk-import scratch space remain build-host validation requirements.

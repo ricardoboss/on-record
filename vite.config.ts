@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { createServer, defineConfig, type Plugin } from 'vite'
+import { genreCatalogue } from './scripts/genre-catalogue.ts'
 
 /**
  * Locks the built page down so the "nothing is uploaded" promise is enforced by
@@ -95,5 +96,5 @@ function prerenderLanding(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), contentSecurityPolicy(), prerenderLanding()],
+  plugins: [genreCatalogue(), react(), contentSecurityPolicy(), prerenderLanding()],
 })

@@ -17,6 +17,7 @@
 !tests/**
 !scripts/
 !scripts/build-genres-bulk.py
+!scripts/genre-catalogue.ts
 !docker/
 !docker/nginx.conf
 !docker/headers.awk

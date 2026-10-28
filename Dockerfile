@@ -13,6 +13,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 COPY src/ ./src/
 COPY public/ ./public/
 COPY tests/ ./tests/
+COPY scripts/genre-catalogue.ts ./scripts/genre-catalogue.ts
 COPY index.html tsconfig*.json vite.config.ts ./
 COPY --from=catalogue /app/src/data/catalogue/genres.json ./src/data/catalogue/genres.json
 RUN npm run build
