@@ -1,5 +1,5 @@
 import { useContext, useMemo, useRef, useState } from 'react'
-import type { genreStats } from '../data/genres'
+import type { genreStats, GenreCoverage, CatalogueInfo } from '../data/genres'
 import { UNKNOWN_GENRE } from '../data/grouping'
 import { formatDuration, formatWeightedNumber, formatNumber, formatPercent } from '../lib/format'
 import { useGrouping } from '../lib/grouping'
@@ -7,6 +7,7 @@ import { useSize } from '../lib/hooks'
 import { OTHER, SERIES } from '../lib/palette'
 import { InCards } from '../lib/stage'
 import { Segmented } from './ui'
+import { GenreCoveragePanel } from './GenreCoveragePanel'
 
 /*
  * "Genres": what your listening is made of, ranked. Bars are your time per
@@ -38,11 +39,12 @@ function share(fraction: number): string {
   return formatPercent(fraction)
 }
 
-export function Genres({ stats }: { stats: GenreStats }) {
+export function Genres({ stats, coverage, catalogue }: { stats: GenreStats; coverage?: GenreCoverage; catalogue?: CatalogueInfo }) {
   const { mode: grouped, singular, plural } = useGrouping()
   const genre = grouped === 'genre'
   const cards = useContext(InCards)
   const [mode, setMode] = useState<Mode>('time')
+  const [details, setDetails] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const { height } = useSize(listRef, { width: 0, height: PAGE_ROWS * CARD_ROW }, cards)
   const fit = cards ? Math.max(1, Math.floor(height / CARD_ROW)) : PAGE_ROWS
@@ -67,6 +69,8 @@ export function Genres({ stats }: { stats: GenreStats }) {
   const known = mode === 'time' ? (stats.totalMs ? stats.matchedMs / stats.totalMs : 0) : stats.totalStarts === 0 ? 0 : stats.matchedStarts / stats.totalStarts
   const unknownText =
     mode === 'time' ? formatDuration(stats.unknownMs) : `${formatNumber(stats.totalStarts - stats.matchedStarts)} starts`
+  const estimated = coverage ? mode === 'time' ? coverage.sources.album.ms + coverage.sources.artist.ms : coverage.sources.album.starts + coverage.sources.artist.starts : 0
+  const denominator = mode === 'time' ? stats.totalMs : stats.totalStarts
 
   return (
     <div className={cards ? 'genres genres--card' : 'genres'}>
@@ -104,8 +108,10 @@ export function Genres({ stats }: { stats: GenreStats }) {
           </div>
           <p>
             <b>{share(known)}</b> of your {mode === 'time' ? 'listening time' : 'starts'} has a genre.
-            {known < 1 && <> The rest ({unknownText}) has no recording-level genre tags and is shown as {UNKNOWN_GENRE}.</>}
+            {estimated > 0 && <> Includes {share(denominator ? estimated / denominator : 0)} album/artist estimates.</>}
+            {known < 1 && <> The rest ({unknownText}) is {UNKNOWN_GENRE}.</>}
           </p>
+          {coverage && <button type="button" className="genres__details" onClick={() => setDetails(true)}>Coverage details</button>}
         </div>
       )}
 
@@ -136,6 +142,7 @@ export function Genres({ stats }: { stats: GenreStats }) {
           {ranked.length > rows.length && `Showing ${rows.length} of ${ranked.length}.`}
         </p>
       )}
+      {coverage && <GenreCoveragePanel open={details} onClose={() => setDetails(false)} coverage={coverage} catalogue={catalogue} />}
     </div>
   )
 }

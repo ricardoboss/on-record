@@ -49,4 +49,5 @@ Apple Media Services*/
 
 # Local catalogue build cache and Python bytecode
 /.cache/musicbrainz/
+/src/data/catalogue/genres.jsonl
 __pycache__/

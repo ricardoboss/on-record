@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createCatalogueLookup, createGenreLookup, genreStats } from '../../src/data/genres'
+import { createCatalogueLookup, createCatalogueResolver, createGenreLookup, genreCoverage, genreStats } from '../../src/data/genres'
 import { generateSampleGenreMap } from '../../src/data/sample'
 import { at, play } from '../helpers'
 
@@ -21,6 +21,67 @@ describe('offline genre matching', () => {
   })
   it('does not match non-music', () => {
     expect(lookup(play(start, { kind: 'episode' }))).toEqual([])
+  })
+})
+
+describe('genre estimates and diagnostics', () => {
+  const resolve = createCatalogueResolver({
+    schemaVersion: 2,
+    artistNames: ['artist', 'artist & guest', 'artist alias', 'fallback only', 'homonym'],
+    genreNames: ['jazz', 'pop', 'rock'],
+    recordings: [
+      [1, 'song', ['album'], [2]],
+      [1, 'song - live', ['live'], [0]],
+    ],
+    recordingAliases: [[0, 1], [2, 1]],
+    albumGenres: [[0, 'album', [1]], [0, 'ambiguous', [0]], [0, 'ambiguous', [2]], [0, 'untagged', []], [0, 'untagged', [1]], [3, 'only album', [2]]],
+    artistGenres: [[0, [0]], [2, [0]], [3, [1]], [4, [0]], [4, [2]]],
+  })
+  it('uses direct recording tags before album and artist estimates, including primary credits and aliases', () => {
+    expect(resolve(play(start))).toMatchObject({ source: 'recording', genres: ['rock'] })
+    expect(resolve(play(start, { artist: 'Artist Alias' }))).toMatchObject({ source: 'recording', genres: ['rock'] })
+    expect(resolve(play(start, { title: 'Unlisted' }))).toMatchObject({ source: 'album', genres: ['pop'], recordingReason: 'song-missing' })
+    expect(resolve(play(start, { title: 'Unlisted', album: 'Other album' }))).toMatchObject({ source: 'artist', genres: ['jazz'] })
+  })
+  it('uses fallback-only artists and albums even without any recording entries', () => {
+    expect(resolve(play(start, { artist: 'Fallback Only', album: 'Only Album' }))).toMatchObject({ source: 'album', genres: ['rock'] })
+    expect(resolve(play(start, { artist: 'Fallback Only', album: '' }))).toMatchObject({ source: 'artist', genres: ['pop'] })
+    expect(resolve(play(start, { artist: 'Absent' }))).toMatchObject({ source: 'unknown', recordingReason: 'artist-missing' })
+  })
+  it('can disable all estimates without caching an estimated result as a direct tag', () => {
+    const song = play(start, { title: 'Unlisted' })
+    expect(resolve(song).source).toBe('album')
+    expect(resolve(song, false)).toMatchObject({ genres: [], source: 'unknown', recordingReason: 'song-missing' })
+    expect(resolve(song).source).toBe('album')
+    expect(resolve(play(start), false).source).toBe('recording')
+  })
+  it('keeps conflicting album/artist identities conservative and never crosses artist boundaries', () => {
+    expect(resolve(play(start, { title: 'Unlisted', album: 'Ambiguous' })).source).toBe('artist')
+    expect(resolve(play(start, { title: 'Unlisted', album: 'Untagged' })).source).toBe('artist')
+    expect(resolve(play(start, { artist: 'Homonym' })).source).toBe('unknown')
+    expect(resolve(play(start, { artist: 'Artist Alias', title: 'Unlisted' })).source).toBe('artist')
+  })
+  it('preserves remix/live markers and excludes podcasts from estimates', () => {
+    expect(resolve(play(start, { title: 'Song - Live', album: 'Live' }))).toMatchObject({ source: 'recording', genres: ['jazz'] })
+    expect(resolve(play(start, { title: 'Song - Remix' })).source).toBe('album')
+    expect(resolve(play(start, { kind: 'episode' }))).toMatchObject({ source: 'unknown', genres: [], recordingReason: 'not-music' })
+  })
+  it('normalizes typographic quotes and dashes without removing version words', () => {
+    const lookup = createGenreLookup([{ ...recording, title: 'It’s a Song – Live' }])
+    expect(lookup(play(start, { title: "It's a Song - Live" }))).toEqual(['pop', 'rock'])
+    expect(lookup(play(start, { title: "It's a Song" }))).toEqual([])
+  })
+  it('counts every start and millisecond once and lists unknown reasons without private export fields', () => {
+    const plays = [play(start), play(start, { title: 'Unlisted' }), play(start, { title: 'Other', album: '' }), play(start, { artist: 'Absent' }), play(start, { artist: 'Absent' }), play(start, { kind: 'episode' })]
+    const coverage = genreCoverage(plays, resolve)
+    expect(coverage.sources).toMatchObject({ recording: { starts: 1 }, album: { starts: 1 }, artist: { starts: 1 }, unknown: { starts: 2, songs: 1 } })
+    expect(Object.values(coverage.sources).reduce((sum, row) => sum + row.ms, 0)).toBe(5 * 180000)
+    expect(coverage.reasons).toEqual([{ reason: 'artist-missing', starts: 2, ms: 360000 }])
+    expect(coverage.unmatched).toEqual([{ artist: 'Absent', title: 'Song', album: 'Album', ms: 360000, starts: 2, reason: 'artist-missing' }])
+    expect(genreCoverage(plays, resolve, false).sources.unknown.starts).toBe(4)
+    const stats = genreStats(plays, p => resolve(p).genres)
+    expect(stats.matchedStarts).toBe(3)
+    expect(stats.genres.reduce((sum, row) => sum + row.ms, 0) + stats.unknownMs).toBe(stats.totalMs)
   })
 })
 

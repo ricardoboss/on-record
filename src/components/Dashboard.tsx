@@ -15,7 +15,9 @@ import {
   songStats,
   takes,
 } from '../data/insights'
-import { catalogueInfo, genreStats, lookupGenres } from '../data/genres'
+import { genreStats, genreCoverage } from '../data/genres'
+import { catalogueInfo, loadGenreCatalogue } from '../data/genreCatalogue'
+import type { GenreResolver } from '../data/genres'
 import { createGrouping, UNKNOWN_GENRE, type GroupingMode } from '../data/grouping'
 import { generateSampleGenreMap } from '../data/sample'
 import {
@@ -117,6 +119,22 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   const hasAnyMusic = otherPlays < result.plays.length
   // Artist or Genre, for every chart, table, poster and video. Like the filters, it isn't stored.
   const [mode, setMode] = useState<GroupingMode>('artist')
+  const [genreEstimates, setGenreEstimates] = useState(true)
+  const [preparedGenres, setPreparedGenres] = useState<GenreResolver | null>(null)
+  const [genreFailed, setGenreFailed] = useState(false)
+  const loadingGenres = mode === 'genre' && !isSample && !preparedGenres && !genreFailed
+  useEffect(() => {
+    if (!loadingGenres) return
+    const controller = new AbortController()
+    void loadGenreCatalogue(result.plays, {
+      signal: controller.signal,
+    }).then(resolve => {
+      if (!controller.signal.aborted) setPreparedGenres(() => resolve)
+    }).catch(() => {
+      if (!controller.signal.aborted) setGenreFailed(true)
+    })
+    return () => controller.abort()
+  }, [loadingGenres, result.plays])
   const [launcher, setLauncher] = useState<LauncherMode | null>(null)
   // Settings opens from the launcher and goes back to it on close, like the launcher's own pages
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -129,21 +147,22 @@ export function Dashboard({ result, isSample, onReset }: Props) {
    * without saying so. `version` counts the changes that have reached the charts, for `viewKey`.
    * Switching between artists and genres is one of those changes.
    */
-  const [applied, setApplied] = useState({ filter: chosen, mode, version: 0 })
+  const [applied, setApplied] = useState({ filter: chosen, mode, genreEstimates, version: 0 })
   const choosing = launcher !== null || settingsOpen
-  const updating = !choosing && (!sameFilter(applied.filter, chosen) || applied.mode !== mode)
+  const readyForMode = mode === 'artist' || isSample || preparedGenres !== null
+  const updating = !choosing && readyForMode && (!sameFilter(applied.filter, chosen) || applied.mode !== mode || applied.genreEstimates !== genreEstimates)
   useEffect(() => {
     if (!updating) return
     let timer = 0
     // requestAnimationFrame runs just before the paint, so the timeout after it lands just after
     const frame = requestAnimationFrame(() => {
-      timer = window.setTimeout(() => setApplied((a) => ({ filter: chosen, mode, version: a.version + 1 })))
+      timer = window.setTimeout(() => setApplied((a) => ({ filter: chosen, mode, genreEstimates, version: a.version + 1 })))
     })
     return () => {
       cancelAnimationFrame(frame)
       window.clearTimeout(timer)
     }
-  }, [updating, chosen, mode])
+  }, [updating, chosen, mode, genreEstimates])
   const all = useMemo(() => filterPlays(result.plays, applied.filter), [result.plays, applied.filter])
   const years = useMemo(() => getYears(all), [all])
   const [pickedYear, setYear] = useState<number | null>(null)
@@ -174,7 +193,10 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   // Everything below is computed from `plays`, so the year filter scopes the whole page
   const plays = useMemo(() => filterByYear(all, year), [all, year])
   const sampleGenres = useMemo(() => isSample ? generateSampleGenreMap() : null, [isSample])
-  const genreLookup = useMemo(() => (sampleGenres ? (p: Play) => sampleGenres.get(p.uri) ?? [] : lookupGenres), [sampleGenres])
+  const genreResolver = useMemo<GenreResolver>(() => sampleGenres
+    ? p => ({ genres: sampleGenres.get(p.uri) ?? [], source: 'recording', recordingReason: 'matched' })
+    : preparedGenres ?? (() => ({ genres: [], source: 'unknown', recordingReason: 'artist-missing' })), [sampleGenres, preparedGenres])
+  const genreLookup = useMemo(() => (p: Play) => genreResolver(p, applied.genreEstimates).genres, [genreResolver, applied.genreEstimates])
   // Every chart groups by this; the plays themselves stay as they were exported
   const grouping = useMemo(() => createGrouping(applied.mode, genreLookup), [applied.mode, genreLookup])
   const noun = grouping.plural
@@ -205,6 +227,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
   const graph = useMemo(() => artistGraph(plays, 36, 3, grouping), [plays, grouping])
   // The Genres chapter breaks down whatever the page groups by: genres from the catalogue, or the artists themselves
   const genres = useMemo(() => genreStats(plays, grouping.mode === 'genre' ? genreLookup : byArtist), [plays, grouping.mode, genreLookup])
+  const coverage = useMemo(() => isGenre ? genreCoverage(plays, genreResolver, applied.genreEstimates) : undefined, [plays, isGenre, genreResolver, applied.genreEstimates])
 
   const firstHeard = useMemo(() => firstListens(all, grouping), [all, grouping])
   // Every music artist, most-listened first, ranked once. The launcher's lists split it by what's hidden,
@@ -534,7 +557,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
 
   return (
     <GroupingContext value={grouping}>
-      <div className={['dash', touring && 'is-touring', cards && 'is-cards', updating && 'is-updating'].filter(Boolean).join(' ')}>
+      <div className={['dash', touring && 'is-touring', cards && 'is-cards', (updating || loadingGenres) && 'is-updating'].filter(Boolean).join(' ')}>
         <header className="topbar" ref={topbarRef}>
           <a
             className="brand"
@@ -629,7 +652,7 @@ export function Dashboard({ result, isSample, onReset }: Props) {
         <InCards value={cards}>
           <OnStage value={onStage}>
             {/* Turning a phone swaps the deck and the page, which lay their charts out differently: start them over */}
-            <main key={cards ? 'cards' : 'page'} className="dash__main" data-dealt={cards ? dealt : undefined} {...swipeHandlers}>
+            <main key={cards ? 'cards' : 'page'} className="dash__main" inert={loadingGenres || updating} data-dealt={cards ? dealt : undefined} {...swipeHandlers}>
               {!cards && (
                 <Hero
                   summary={summary}
@@ -725,14 +748,14 @@ export function Dashboard({ result, isSample, onReset }: Props) {
                 hint="What you listen to most, and what you skip."
                 lede={
                   isGenre ? (
-                    <>Your listening sorted into genres, by time or by how often you skip. Songs with several genres count toward each, split evenly. {isSample ? 'The demo uses fictional song genres.' : <>Tags from <a href="https://musicbrainz.org">MusicBrainz</a>, filtered and reformatted under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>. {formatNumber(catalogueInfo.recordings)} recordings across {formatNumber(catalogueInfo.artists)} credited artist names and {formatNumber(catalogueInfo.genres)} genres. Untagged songs stay unknown.</>}</>
+                    <>Your listening sorted into genres, by time or by how often you skip. Songs with several genres count toward each, split evenly. {isSample ? 'The demo uses fictional song genres.' : <>Tags from <a href="https://musicbrainz.org">MusicBrainz</a>, filtered and reformatted under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>. {formatNumber(catalogueInfo.recordings)} recording candidates across {formatNumber(catalogueInfo.artists)} artist names and {formatNumber(catalogueInfo.genres)} genres. {applied.genreEstimates ? 'Missing song tags use album genres, then artist genres, as estimates throughout the page.' : 'Only direct recording tags are used.'}</>}</>
                   ) : (
                     'Your listening sorted by artist, by time or by how often you skip.'
                   )
                 }
                 table={() => <GenresTable stats={genres} />}
               >
-                <Genres key={viewKey} stats={genres} />
+                <Genres key={viewKey} stats={genres} coverage={coverage} catalogue={isSample ? undefined : catalogueInfo} />
               </Chapter>
 
               <Chapter
@@ -904,10 +927,14 @@ export function Dashboard({ result, isSample, onReset }: Props) {
           onMusicOnly={setMusicOnly}
           otherPlays={otherPlays}
           hasAnyMusic={hasAnyMusic}
+          genreEstimates={genreEstimates}
+          onGenreEstimates={setGenreEstimates}
         />
         {/* Paints before the charts are worked out again, so the moment that takes doesn't look like a hang */}
-        <p className="dash__updating" role="status">
-          {updating ? 'Updating the charts…' : ''}
+        <p className="dash__updating" role={genreFailed && mode === 'genre' ? 'alert' : 'status'}>
+          {genreFailed && mode === 'genre' ? <>Couldn’t load the local genre catalogue. <button type="button" onClick={() => setGenreFailed(false)}>Retry</button></>
+            : loadingGenres ? 'Loading genre catalogue…'
+              : updating ? 'Updating the charts…' : ''}
         </p>
 
         {tourStep !== null && (

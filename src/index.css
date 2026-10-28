@@ -3314,6 +3314,58 @@ th {
   color: var(--text);
 }
 
+.genres__details {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 0.85rem;
+}
+
+.genre-details table {
+  width: 100%;
+  margin: 16px 0;
+  font-size: 0.82rem;
+  table-layout: fixed;
+}
+
+.genre-details th,
+.genre-details td {
+  padding: 9px 5px;
+  white-space: normal;
+}
+
+.genre-details th {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.genre-details th:first-child {
+  width: 34%;
+}
+
+.genre-details h3 {
+  margin: 20px 0 8px;
+  font-size: 1rem;
+}
+
+.genre-details ul,
+.genre-details__songs {
+  padding-left: 1.3em;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.genre-details__songs li + li {
+  margin-top: 12px;
+}
+
+.genre-details__songs span {
+  display: block;
+  color: var(--muted);
+}
+
 .genres__coverbar {
   display: flex;
   height: 6px;
@@ -5474,7 +5526,16 @@ kbd {
   background: var(--bg-raise);
   color: var(--text);
   font-weight: 650;
-  white-space: nowrap;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  white-space: normal;
+  text-align: center;
+}
+
+.dash__updating button {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
 }
 
 .dash__updating:empty {
