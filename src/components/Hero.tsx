@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import type { HourSlot } from '../data/insights'
 import type { Ranked, Summary } from '../data/stats'
 import { equivalents, formatDuration, formatHour, formatNumber, formatPercent } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { useCountUp, useSeen } from '../lib/hooks'
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function Hero({ summary, year, span, isSample, topArtist, hours, newArtists, onPlay, onPoster }: Props) {
+  const { plural } = useGrouping()
   const ref = useRef<HTMLElement>(null)
   const seen = useSeen(ref, 0.1)
   const total = summary.totalMs / 3_600_000
@@ -26,11 +28,11 @@ export function Hero({ summary, year, span, isSample, topArtist, hours, newArtis
 
   const ticker = [
     `${formatNumber(summary.streams)} streams`,
-    `${formatNumber(summary.artists)} artists`,
+    `${formatNumber(summary.artists)} ${plural}`,
     `${formatNumber(summary.tracks)} songs`,
     `${formatNumber(summary.activeDays)} days with music`,
     `${formatDuration(summary.totalMs / Math.max(summary.activeDays, 1))} a day`,
-    ...(newArtists !== null ? [`${formatNumber(newArtists)} new artists`] : []),
+    ...(newArtists !== null ? [`${formatNumber(newArtists)} new ${plural}`] : []),
     `peak hour ${formatHour(peak.hour)}`,
     ...(topArtist ? [`#1 ${topArtist.label}`] : []),
     `${formatPercent(summary.skipRate)} skipped`,

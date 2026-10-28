@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { topItems, type Category, type RankBy, type Ranked } from '../data/stats'
-import { formatDuration, formatNumber } from '../lib/format'
+import { formatDuration, formatWeightedNumber, formatNumber } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { useSize } from '../lib/hooks'
 import { InCards } from '../lib/stage'
 import type { Play } from '../types'
@@ -15,7 +16,7 @@ const CATEGORIES: { value: Category; label: string }[] = [
   { value: 'show', label: 'Podcasts' },
 ]
 
-const playsLabel = (n: number) => `${formatNumber(n)} play${n === 1 ? '' : 's'}`
+const playsLabel = (n: number, weighted: boolean) => `${weighted ? formatWeightedNumber(n) : formatNumber(n)}${weighted ? ' weighted' : ''} play${n === 1 ? '' : 's'}`
 
 /**
  * A list row's height on a phone's card (taller when each name has an artist under it), and the
@@ -40,8 +41,14 @@ interface Props {
   onManage: () => void
 }
 
-/** "The Charts": your top artists, songs, albums and podcasts, with a podium for the top 3 */
+/**
+ * "The Charts": your top artists (or genres), songs, albums and podcasts, with a podium for the top 3.
+ * A genre gets a share of each song's plays, so its plays are weighted, and there's nothing to hide:
+ * hiding is for real artists, which only the artist ranking lists.
+ */
 export function TopCharts({ plays, onHide, hidden, onManage }: Props) {
+  const grouping = useGrouping()
+  const byGenre = grouping.mode === 'genre'
   // A phone's card shows the podium and as many rows as fit; the full list opens on top when you ask for it
   const card = useContext(InCards)
   const [category, setCategory] = useState<Category>('artist')
@@ -56,19 +63,24 @@ export function TopCharts({ plays, onHide, hidden, onManage }: Props) {
   const hiddenCount = hidden.size
 
   const hasPodcasts = useMemo(() => plays.some((p) => p.kind === 'episode'), [plays])
-  const options = hasPodcasts ? CATEGORIES : CATEGORIES.filter((c) => c.value !== 'show')
+  const categories = useMemo(
+    () => CATEGORIES.map((c) => (c.value === 'artist' ? { ...c, label: grouping.plural[0].toUpperCase() + grouping.plural.slice(1) } : c)),
+    [grouping],
+  )
+  const options = hasPodcasts ? categories : categories.filter((c) => c.value !== 'show')
   const active = !hasPodcasts && category === 'show' ? 'artist' : category
   // A hidden artist leaves the list at once; the rest of the page catches up a moment later
   const items = useMemo(() => {
-    const ranked = topItems(plays, active, rankBy, expanded || card ? FULL : 20)
-    return active === 'artist' ? ranked.filter((r) => !hidden.has(r.label)) : ranked
-  }, [plays, active, rankBy, expanded, card, hidden])
+    const ranked = topItems(plays, active, rankBy, expanded || card ? FULL : 20, grouping)
+    return active === 'artist' && !byGenre ? ranked.filter((r) => !hidden.has(r.label)) : ranked
+  }, [plays, active, rankBy, expanded, card, hidden, grouping, byGenre])
 
   const value = rankBy === 'time' ? (r: Ranked) => r.ms : (r: Ranked) => r.plays
-  const primary = rankBy === 'time' ? (r: Ranked) => formatDuration(r.ms) : (r: Ranked) => playsLabel(r.plays)
-  const secondary = rankBy === 'time' ? (r: Ranked) => playsLabel(r.plays) : (r: Ranked) => formatDuration(r.ms)
+  const weighted = byGenre && active === 'artist'
+  const primary = rankBy === 'time' ? (r: Ranked) => formatDuration(r.ms) : (r: Ranked) => playsLabel(r.plays, weighted)
+  const secondary = rankBy === 'time' ? (r: Ranked) => playsLabel(r.plays, weighted) : (r: Ranked) => formatDuration(r.ms)
   const max = Math.max(...items.map(value), 1)
-  const canHide = active === 'artist'
+  const canHide = active === 'artist' && !byGenre
   const hideButton = (name: string) =>
     canHide && (
       <button type="button" className="chart-hide" aria-label={`Hide ${name} everywhere`} title="Hide everywhere" onClick={() => setRefused(onHide(name) ? null : { name, hidden })}>
@@ -92,7 +104,7 @@ export function TopCharts({ plays, onHide, hidden, onManage }: Props) {
   const cover = (item: Ranked, size: number) => <Cover name={item.sublabel ? `${item.label}|${item.sublabel}` : item.label} size={size} />
 
   if (card) {
-    const head = CATEGORIES.find((c) => c.value === active)!.label.toLowerCase()
+    const head = categories.find((c) => c.value === active)!.label.toLowerCase()
     // The rows under the podium: as many whole rows as the space below it holds
     const rowH = items.some((r) => r.sublabel) ? CARD_ROW_TALL : CARD_ROW
     const room = Math.max(0, Math.floor((rest.height - CARD_MORE) / rowH))

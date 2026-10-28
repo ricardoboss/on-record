@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { GraphLink, GraphNode } from '../data/insights'
-import { formatDuration, formatNumber } from '../lib/format'
+import { formatDuration, formatWeightedNumber, formatNumber } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { useSize, useWidth } from '../lib/hooks'
 import { isHover } from '../lib/pointer'
 import { mulberry32 } from '../lib/random'
@@ -10,8 +11,9 @@ import { layoutConstellation, nearestStar, starSize, trimGraph } from '../viz/co
 import { ZoomControls } from './ZoomControls'
 
 /*
- * "Constellation": your top artists as stars, linked when you tend to play
- * one straight after the other. Clusters are your scenes.
+ * "Constellation": your top artists (or genres) as stars, linked when you tend
+ * to play one straight after the other. Clusters are your scenes. A song with
+ * several genres shares its links between them, so genre links are weighted.
  */
 
 interface Props {
@@ -36,6 +38,9 @@ function nameList(names: string[]): ReactNode {
 }
 
 export function Constellation({ nodes: allNodes, links: allLinks, colors, onPoster }: Props) {
+  const { mode, plural } = useGrouping()
+  // How often two stars come up back to back; a genre's share of a song makes that a weighted count
+  const times = (n: number) => (mode === 'genre' ? `${formatWeightedNumber(n)} weighted` : `${formatNumber(n)}×`)
   // On a phone's card the sky fills the card and a finger always explores it; on the page it's a band in the column
   const card = useContext(InCards)
   const ref = useRef<HTMLDivElement>(null)
@@ -178,7 +183,7 @@ export function Constellation({ nodes: allNodes, links: allLinks, colors, onPost
         width={width}
         height={height}
         role="img"
-        aria-label="Network of your top artists, linked by what you play back to back"
+        aria-label={`Network of your top ${plural}, linked by what you play back to back`}
         onClick={(e) => {
           if (card) {
             const r = e.currentTarget.getBoundingClientRect()
@@ -289,9 +294,9 @@ export function Constellation({ nodes: allNodes, links: allLinks, colors, onPost
               {activeLinks.length ? <>often next to {nameList(activeLinks.slice(0, 2).map((l) => l.other))}.</> : 'rarely played next to your other favorites.'}
             </>
           ) : tightest ? (
-            <>Most often back to back: {nameList([tightest.source, tightest.target])}, {formatNumber(tightest.count)} times.</>
+            <>Most often back to back: {nameList([tightest.source, tightest.target])}, {mode === 'genre' ? `${formatWeightedNumber(tightest.count)} weighted times` : `${formatNumber(tightest.count)} times`}.</>
           ) : (
-            'None of these artists come up back to back often enough to join.'
+            `None of these ${plural} come up back to back often enough to join.`
           )}
         </p>
       </div>
@@ -313,7 +318,7 @@ export function Constellation({ nodes: allNodes, links: allLinks, colors, onPost
                 {activeLinks.slice(0, 3).map((l, i) => (
                   <span key={l.other}>
                     {i > 0 && (i === Math.min(activeLinks.length, 3) - 1 ? ' and ' : ', ')}
-                    <em>{l.other}</em> ({formatNumber(l.count)}×)
+                    <em>{l.other}</em> ({times(l.count)})
                   </span>
                 ))}
                 .
@@ -329,7 +334,7 @@ export function Constellation({ nodes: allNodes, links: allLinks, colors, onPost
           </>
         ) : (
           <span className="muted">
-            Bigger stars got more of your time. Lines join artists you play back to back, thicker for more often.{' '}
+            Bigger stars got more of your time. Lines join {plural} you play back to back, thicker for more often.{' '}
             {narrow ? 'Tap a star.' : 'Hover a star, click to keep it selected.'}
           </span>
         )}
@@ -345,13 +350,14 @@ export function Constellation({ nodes: allNodes, links: allLinks, colors, onPost
 }
 
 export function ConstellationTable({ links }: { links: GraphLink[] }) {
+  const { mode, singular } = useGrouping()
   return (
     <table>
       <thead>
         <tr>
-          <th>Artist</th>
+          <th>{singular[0].toUpperCase() + singular.slice(1)}</th>
           <th>Played next to</th>
-          <th className="num">Times</th>
+          <th className="num">{mode === 'genre' ? 'Weighted times' : 'Times'}</th>
         </tr>
       </thead>
       <tbody>
@@ -361,7 +367,7 @@ export function ConstellationTable({ links }: { links: GraphLink[] }) {
             <tr key={`${l.source}-${l.target}`}>
               <td>{l.source}</td>
               <td>{l.target}</td>
-              <td className="num">{formatNumber(l.count)}</td>
+              <td className="num">{mode === 'genre' ? formatWeightedNumber(l.count) : formatNumber(l.count)}</td>
             </tr>
           ))}
       </tbody>

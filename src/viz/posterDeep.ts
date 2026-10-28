@@ -57,7 +57,7 @@ export function renderDeepPoster(ctx: CanvasRenderingContext2D, W: number, H: nu
     { value: data.stats.hours, label: 'hours listened' },
     { value: data.stats.streams, label: 'plays' },
     { value: data.stats.songs, label: 'different songs' },
-    { value: data.stats.artists, label: 'artists' },
+    { value: data.stats.artists, label: data.grouping === 'genre' ? 'genres' : 'artists' },
   ]
   const figW = (W - 2 * pad) / figures.length
   const figTop = y + 2.6 * u
@@ -391,7 +391,7 @@ export function renderDeepPoster(ctx: CanvasRenderingContext2D, W: number, H: nu
 
   // 2. Hours per month, stacked by artist
   {
-    const x = panel(1, 'Who I listened to', 'Hours per month, by artist')
+    const x = panel(1, 'Who I listened to', `Hours per month, by ${data.grouping ?? 'artist'}`)
     const max = Math.max(...months.map((m) => m.total), 1)
     const bh = chartH - 2.2 * u
     const bw = pw / months.length
@@ -553,7 +553,7 @@ export function renderDeepPoster(ctx: CanvasRenderingContext2D, W: number, H: nu
   ctx.textAlign = 'left'
   ctx.fillStyle = ink
   ctx.font = font(700, 1.9 * u)
-  ctx.fillText(multiYear ? 'My #1 artist, year by year' : 'My #1 artist, month by month', pad, stripTop + 0.8 * u)
+  ctx.fillText(`My #1 ${data.grouping ?? 'artist'}, ${multiYear ? 'year by year' : 'month by month'}`, pad, stripTop + 0.8 * u)
   const colW = (W - 2 * pad) / periods.length
   const maxTotal = Math.max(...periods.map((p) => p.total), 1)
   periods.forEach((p, i) => {

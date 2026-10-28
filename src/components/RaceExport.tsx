@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState, type RefObject } from 'react'
 import type { Bins, RaceData } from '../data/insights'
+import { useGrouping } from '../lib/grouping'
 import { InCards } from '../lib/stage'
 import { makeRaceVideo, raceVideoMode } from '../viz/raceVideo'
 
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function RaceExport({ bins, race, colors, board, onBusy }: Props) {
+  const grouping = useGrouping()
   const cards = useContext(InCards)
   const [mode] = useState(raceVideoMode)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -53,7 +55,7 @@ export function RaceExport({ bins, race, colors, board, onBusy }: Props) {
     const { covers, urls } = await loadCovers(board.current, race.names)
     try {
       const file = await makeRaceVideo(
-        { bins, race, colors, covers },
+        { bins, race, colors, covers, grouping: grouping.mode },
         // A late progress report mustn't bring back a render that was cancelled
         (progress) => !controller.signal.aborted && setPhase({ kind: 'rendering', progress }),
         controller.signal,

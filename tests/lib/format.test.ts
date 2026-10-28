@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { equivalents, formatHour, historyName } from '../../src/lib/format'
+import { formatWeightedNumber, equivalents, formatHour, historyName } from '../../src/lib/format'
 
 describe('formatHour', () => {
   it('uses a 12-hour clock', () => {
@@ -29,5 +29,15 @@ describe('historyName', () => {
     expect(historyName(['apple'])).toBe('Apple Music listening history')
     expect(historyName(['spotify', 'apple'])).toBe('Spotify and Apple Music listening history')
     expect(historyName([])).toBe('Spotify Extended Streaming History')
+  })
+})
+
+
+// A genre's fraction of a play must not appear as a whole play.
+describe('weighted contributions', () => {
+  it('keeps fractional counts readable', () => {
+    expect(formatWeightedNumber(0.5)).toBe('0.5')
+    expect(formatWeightedNumber(1.25)).toBe('1.25')
+    expect(formatWeightedNumber(0.001)).toBe('<0.01')
   })
 })

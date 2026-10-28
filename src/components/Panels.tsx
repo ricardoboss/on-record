@@ -91,7 +91,7 @@ export function Modal({ open, onClose, onGone, label, className, children }: Mod
   )
 }
 
-function ModalHead({ title, onClose }: { title: string; onClose: () => void }) {
+export function ModalHead({ title, onClose }: { title: string; onClose: () => void }) {
   return (
     <header className="modal__head">
       <h2 tabIndex={-1} data-autofocus>
@@ -114,9 +114,11 @@ interface SettingsProps {
   otherPlays: number
   /** False when the export has no music at all, so music only would leave nothing */
   hasAnyMusic: boolean
+  genreEstimates: boolean
+  onGenreEstimates: (on: boolean) => void
 }
 
-export function SettingsPanel({ open, onClose, onGone, musicOnly, onMusicOnly, otherPlays, hasAnyMusic }: SettingsProps) {
+export function SettingsPanel({ open, onClose, onGone, musicOnly, onMusicOnly, otherPlays, hasAnyMusic, genreEstimates, onGenreEstimates }: SettingsProps) {
   const canToggle = hasAnyMusic && otherPlays > 0
   return (
     <Modal open={open} onClose={onClose} onGone={onGone} label="Settings" className="modal--panel">
@@ -135,6 +137,14 @@ export function SettingsPanel({ open, onClose, onGone, musicOnly, onMusicOnly, o
               ? 'There are no podcasts or audiobooks in this history.'
               : `Leaves out ${formatNumber(otherPlays)} podcast and audiobook play${otherPlays === 1 ? '' : 's'}.`}
         </p>
+      </section>
+      <section className="settings__row">
+        <label className="switch">
+          <input type="checkbox" checked={genreEstimates} onChange={e => onGenreEstimates(e.target.checked)} />
+          <span className="switch__track" aria-hidden="true" />
+          <span className="switch__label">Estimate missing genres</span>
+        </label>
+        <p className="settings__note">When a song has no usable genre tags, use its album’s genres, then its artist’s. Applies to every genre view and export. Turn off to use direct recording tags only.</p>
       </section>
     </Modal>
   )

@@ -19,6 +19,7 @@ Everything runs in your browser. There's no server, and your data is never uploa
 | **Around the Clock** | 24-hour radial chart split into day and night, your artist for each part of the day (on a phone, the one you lean on more than usual), and a weekday × hour dot matrix. |
 | **Every Day** | Calendar heatmap, one square per day, a year at a time. On a phone it's a calendar: pick a year, a month and a day, or find a date, and the day opens with everything you played. |
 | **Love / Hate** | The song you let play most against the one you skip most, then (on a bigger screen) every most-played song by plays vs. skip rate. |
+| **Genres** | Listening time and skip rates by genre, matched against a bundled offline catalogue, with coverage shown. |
 | **Constellation** | Force-directed map of artists you play back to back. Clusters are your scenes. |
 | **Pulse** | An *Unknown Pleasures*-style ridgeline of your top artists, in the order you found them. |
 | **The Charts** | Top artists, songs, albums and podcasts with generative covers. |
@@ -78,6 +79,24 @@ The site is hosted on Cloudflare at [mylisteningrecord.com](https://mylisteningr
 
 The build emits `dist/_headers`, which Cloudflare applies as response headers: the Content Security Policy plus HSTS, framing and caching rules. The build uses relative asset paths, so `dist/` also works on any other static host, where the CSP meta tag in the page still applies.
 
+### Docker
+
+Build everything with Docker; no local Node.js installation or `dist/` is needed:
+
+```bash
+docker build -t on-record .
+docker run --rm -p 8080:8080 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop=ALL --security-opt=no-new-privileges on-record
+```
+
+Open `http://localhost:8080`. Build stages install locked dependencies, retrieve public genre metadata from MusicBrainz, and compile the app. Only the compiled site and an unprivileged Alpine NGINX server enter the runtime image. The running container makes no metadata requests and contains no Node.js tooling. The build context excludes listening exports, local `dist/`, dependencies and the committed genre snapshot.
+
+The catalogue stage imports the complete MusicBrainz core and derived bulk snapshots, not a sample of API search results. The first build downloads roughly 7.5 GB compressed and needs substantial additional scratch disk for SQLite tables and indexes. Run it on a build host with enough disk; no large downloads happen during ordinary app tests or local `npm run build`. Only compact recording, album and artist genre metadata reaches the app.
+
+Raw archives use a separate BuildKit cache, support interrupted-download resume, and must match the snapshot's SHA256 checksums before import. Docker also caches pristine imported tables, so export retries can reuse the expensive import. This checkpoint uses additional disk and is keyed by snapshot and import rules; exports work on a disposable copy. The catalogue stage is cached independently from app source and npm dependencies. To use a fixed snapshot, pass `--build-arg MUSICBRAINZ_SNAPSHOT=20261028-002228`; otherwise it resolves `latest` on an uncached catalogue build. Use `docker build --no-cache -t on-record .` to resolve it again. An uncached build needs access to the image registry, Alpine packages, npm and MusicBrainz. Failed imports stop the build rather than silently using stale metadata.
+
+Hashed assets use immutable one-year caching; HTML and other files require revalidation. NGINX compresses text responses and serves the build's security headers, including CSP. Image packaging translates the global headers in `dist/_headers` into NGINX configuration, keeping `vite.config.ts` as the single source of header definitions. Put the container behind a TLS reverse proxy for public hosting.
+
 ## Project structure
 
 ```
@@ -119,3 +138,25 @@ src/
 ## Disclaimer
 
 My Listening Record is an independent project, not affiliated with, endorsed by or sponsored by Spotify AB or Apple Inc. Spotify is a trademark of Spotify AB. Apple Music is a trademark of Apple Inc.
+
+## Offline genre catalogue
+
+The dashboard makes no external metadata requests. Tags ship as local JavaScript modules; listening histories never enter the catalogue generator. Matching uses artist and title, with album disambiguation when available. Version markers are preserved and conflicting direct matches remain unresolved.
+
+To rebuild the catalogue outside Docker, `npm run catalogue:genres` runs the same Python 3 bulk importer and writes `src/data/catalogue/genres.jsonl`. Do this on the build host: it downloads the full archives, not a small development fixture. Options follow `--`, for example `npm run catalogue:genres -- --snapshot 20261028-002228 --cache-dir /data/musicbrainz --work-dir /data/scratch --table-cache-dir /data/musicbrainz/tables`. Ordinary development/tests use the committed small JSON snapshot and do not download metadata. Production builds use the full JSONL export when present, otherwise the small snapshot.
+
+The importer reads all official genres and positive recording, release, release-group and artist genre associations from one consistent MusicBrainz snapshot, with no genre seed list or per-genre page cap. Recording tags take priority. When they cannot be resolved, the app estimates from the matching artist/album's tags (release before release-group), then from artist tags. Settings → Estimate missing genres disables both estimates for every view and export. Settings reset on reload.
+
+The catalogue includes tagged artists and albums even when their recordings have no tags. Primary artist credits and unambiguous artist aliases bridge Spotify and MusicBrainz naming differences. Typographic quotes and dashes are normalized; live/remix/version markers remain significant. Untagged siblings prevent unsupported matches. Equivalent recordings share an album union; album-edition agreement is resolved before export, with conflicting album estimates omitted. These rules preserve conservative matching without shipping every duplicate edition.
+
+Artist mode does not load the full catalogue. When Genres is selected, short-lived workers load compressed public modules in a fixed order, independent of listening history. The page decodes one bounded chunk at a time and retains only relevant matching candidates, then releases the public payloads. This avoids keeping the full catalogue in browser memory. The first genre preparation can take over a minute; subsequent filters reuse the prepared lookup. Production builds stream JSONL into content-hashed modules outside Vite's parsing/minification pipeline. Each source chunk is capped at 4 MiB UTF-8; the browser never concatenates the full catalogue into one string. The committed snapshot is a small development fallback; its counts are shown in the app. The demo uses its own seeded fictional song genres.
+
+Coverage details in the genre breakdown separate direct song tags, album estimates, artist estimates and unknowns for the current year and filters. They show why songs remain unknown and the twenty unmatched songs with the most listening time. Diagnostics run in memory inside the tab; history is never sent to a metadata provider or included in an image build.
+
+Artist / Genre beside the year picker changes the grouping across charts, tables, posters and race exports. Real listening records and song drill-downs remain intact. Listening time and counted plays stay unchanged; a multi-genre song contributes an equal fraction to each genre. Starts, skips and transitions labelled “weighted” retain their fractions. Unknown music remains visible as a neutral group and never receives an artist-based genre estimate. Genre Love / Hate compares the least and most skipped known genres; individual-song facts retain real artist names. The choice resets on reload.
+
+Listening time, starts and skips are split equally between a song's accepted genres. Skip rates include short starts and use the same skip definition as the rest of the app. Song and artist counts are distinct within each genre. The breakdown's skip ranking requires 20 weighted starts; historical listening is classified using the snapshot's tags, not historical tags.
+
+Run `npm run test:catalogue` for small synthetic archive and checksum fixtures. These tests make no real metadata downloads; they also run in CI.
+
+**Data licence:** `src/data/catalogue/genres.json` contains genre associations from [MusicBrainz](https://musicbrainz.org), filtered and reformatted by this project. This dataset is separately licensed under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), including its attribution, noncommercial and share-alike conditions; the repository's MIT licence does not relicense it. The generated catalogue records its source snapshot. [MusicBrainz licensing details](https://musicbrainz.org/doc/About/Data_License).

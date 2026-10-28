@@ -5,6 +5,7 @@ import { useCloseOnBack } from '../lib/back'
 import { formatDuration, formatHour, formatLongDate, formatNumber, formatShortDate, formatTime } from '../lib/format'
 import { useMediaQuery, useSeen, useSize, useWidth } from '../lib/hooks'
 import { COARSE, useFingerDrag, useHoldDrag } from '../lib/pointer'
+import { useGrouping } from '../lib/grouping'
 import { InCards } from '../lib/stage'
 import { IDENTITY, usePanZoom, type View } from '../lib/zoom'
 import type { Play } from '../types'
@@ -65,6 +66,7 @@ const STACKED = '(max-width: 900px)'
 /** On a card one finger always belongs to the needle, so panning the record takes two */
 const NEEDLE_FINGER = { current: true }
 export function Vinyl({ plays, model, slotColors, legend, title, subtitle, onPoster, learned, onLearned }: Props) {
+  const grouping = useGrouping()
   const inCards = useContext(InCards)
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -199,19 +201,24 @@ export function Vinyl({ plays, model, slotColors, legend, title, subtitle, onPos
     const arcs: number[] = []
     const byArtist = new Map<string, number>()
     const playIds = new Set<number>()
+    const minutesByPlay = new Map<number, number>()
     for (let k = 0; k < model.count; k++) {
       if (model.ring[k] !== ring) continue
       arcs.push(k)
       playIds.add(model.play[k])
-      const p = plays[model.play[k]]
-      byArtist.set(p.artist, (byArtist.get(p.artist) ?? 0) + (model.to[k] - model.from[k]))
+      minutesByPlay.set(model.play[k], (minutesByPlay.get(model.play[k]) ?? 0) + model.to[k] - model.from[k])
+    }
+    for (const [id, minutes] of minutesByPlay) {
+      for (const member of grouping.members(plays[id])) {
+        byArtist.set(member.name, (byArtist.get(member.name) ?? 0) + minutes * member.weight)
+      }
     }
     const top = [...byArtist].sort((a, b) => b[1] - a[1]).slice(0, 3)
     // Until you pick a time, the needle sits in the middle of the day's longest play
     const longest = arcs.reduce((best, k) => (best < 0 || model.to[k] - model.from[k] > model.to[best] - model.from[best] ? k : best), -1)
     const autoMinute = longest >= 0 ? (model.from[longest] + model.to[longest]) / 2 : 21 * 60
     return { arcs, top, plays: playIds.size, autoMinute }
-  }, [model, ring, plays])
+  }, [model, ring, plays, grouping])
   const minute = needle?.minute ?? day.autoMinute
 
   const playingArc = useMemo(() => {
@@ -661,13 +668,13 @@ export function Vinyl({ plays, model, slotColors, legend, title, subtitle, onPos
           </div>
         )}
 
-        <ul className="legend" aria-label="Artist colors">
+        <ul className="legend" aria-label={`${grouping.singular} colors`}>
           {legendItems}
         </ul>
         <p className="hint">
           {COARSE
-            ? 'Tap a groove to pick a day. Hold and drag on the record to skim, or drag along the strip to move through a day. Pinch to zoom. Tap an artist to light up only their grooves.'
-            : 'Hover the record to preview a day, click to hold it, click away to let go. Zoom in to see single days up close. Tap an artist to light up only their grooves.'}
+            ? `Tap a groove to pick a day. Hold and drag on the record to skim, or drag along the strip to move through a day. Pinch to zoom. Tap a ${grouping.singular} to light up only their grooves.`
+            : `Hover the record to preview a day, click to hold it, click away to let go. Zoom in to see single days up close. Tap a ${grouping.singular} to light up only their grooves.`}
         </p>
 
         <button type="button" className="button button--ghost" onClick={onPoster}>
@@ -843,6 +850,7 @@ function StepButton({ label, disabled, onStep, children }: { label: string; disa
  * rest a tap away, opening over the record rather than pushing it smaller.
  */
 function CardLegend({ items }: { items: ReactNode[] }) {
+  const grouping = useGrouping()
   const measureRef = useRef<HTMLUListElement>(null)
   const [fit, setFit] = useState(Infinity)
   const [open, setOpen] = useState(false)
@@ -884,7 +892,7 @@ function CardLegend({ items }: { items: ReactNode[] }) {
       <ul className="legend legend--card legend-fit__measure" ref={measureRef} aria-hidden="true">
         {items}
       </ul>
-      <ul className="legend legend--card" aria-label="Artist colors">
+      <ul className="legend legend--card" aria-label={`${grouping.singular} colors`}>
         {hiddenCount > 0 ? items.slice(0, fit) : items}
         {hiddenCount > 0 && (
           <li>
@@ -895,7 +903,7 @@ function CardLegend({ items }: { items: ReactNode[] }) {
         )}
       </ul>
       {open && (
-        <ul className="legend legend--card legend-fit__all" aria-label="All artist colors">
+        <ul className="legend legend--card legend-fit__all" aria-label={`All ${grouping.singular} colors`}>
           {items}
         </ul>
       )}

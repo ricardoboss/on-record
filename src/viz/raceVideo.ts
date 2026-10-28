@@ -35,6 +35,7 @@ export function raceYears(bins: Bins): { first: number; last: number; years: num
 }
 
 export interface RaceScene {
+  grouping?: 'artist' | 'genre'
   bins: Bins
   race: RaceData
   colors: Map<string, string>
@@ -48,7 +49,7 @@ export interface RaceFilm {
   draw: (ctx: CanvasRenderingContext2D, W: number, H: number, time: number) => void
 }
 
-export function makeRaceFilm({ bins, race, colors, covers }: RaceScene): RaceFilm {
+export function makeRaceFilm({ bins, race, colors, covers, grouping = 'artist' }: RaceScene): RaceFilm {
   const frames = race.frames
   const n = race.names.length
   const step = raceFrameMs(frames) / 1000
@@ -103,7 +104,7 @@ export function makeRaceFilm({ bins, race, colors, covers }: RaceScene): RaceFil
     ctx.textAlign = 'left'
     ctx.fillStyle = soft
     ctx.font = font(500, 3.8 * u)
-    ctx.fillText('Hours per artist, as they added up', pad, 24 * u)
+    ctx.fillText(`Hours per ${grouping}, as they added up`, pad, 24 * u)
     const date = new Date(bins.starts[f0] ?? bins.starts[0])
     const when = bins.size === 'month' ? `${formatMonthShort(date.getMonth())} ${date.getFullYear()}` : formatDate(date)
     ctx.fillStyle = ink

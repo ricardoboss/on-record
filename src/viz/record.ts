@@ -1,3 +1,4 @@
+import { ARTIST_GROUPING, type Grouping } from '../data/grouping'
 import { dayNumber, fromDayNumber, startDate } from '../data/stats'
 import { formatHour, formatMonthShort } from '../lib/format'
 import { TOP_ARTISTS } from '../lib/palette'
@@ -61,34 +62,35 @@ export interface RecordModel {
   count: number
   ring: Int32Array
   /** Minutes after midnight */
-  from: Float32Array
-  to: Float32Array
+  from: Float32Array | Float64Array
+  to: Float32Array | Float64Array
   slot: Uint8Array
   play: Int32Array
   /** Listening per day, in minutes */
   dayMinutes: Float64Array
 }
 
-export function buildRecord(plays: Play[], legend: string[], year: number | null): RecordModel {
+export function buildRecord(plays: Play[], legend: string[], year: number | null, grouping: Grouping = ARTIST_GROUPING): RecordModel {
   const firstDay = dayNumber(year === null ? startDate(plays[0]) : new Date(year, 0, 1))
   const lastDay = dayNumber(year === null ? new Date(plays[plays.length - 1].endTime) : new Date(year, 11, 31))
   const days = lastDay - firstDay + 1
   const slotOf = new Map(legend.map((a, i) => [a, i]))
-  const cap = plays.length * 2
+  const memberships = plays.map(p => grouping.members(p))
+  const cap = memberships.reduce((sum, members) => sum + members.length * 2, 0)
+  const Times = grouping.mode === 'genre' ? Float64Array : Float32Array
   const m: RecordModel = {
     firstDay,
     days,
     count: 0,
     ring: new Int32Array(cap),
-    from: new Float32Array(cap),
-    to: new Float32Array(cap),
+    from: new Times(cap),
+    to: new Times(cap),
     slot: new Uint8Array(cap),
     play: new Int32Array(cap),
     dayMinutes: new Float64Array(days),
   }
 
   plays.forEach((p, i) => {
-    const slot = p.kind === 'track' ? (slotOf.get(p.artist) ?? SLOT_OTHER) : SLOT_PODCAST
     let t = p.endTime - p.msPlayed
     // At most two pieces: nothing plays for more than a day
     for (let piece = 0; piece < 2 && t < p.endTime && m.count < cap; piece++) {
@@ -97,15 +99,21 @@ export function buildRecord(plays: Play[], legend: string[], year: number | null
       const end = Math.min(p.endTime, midnight)
       const ring = dayNumber(d) - firstDay
       if (ring >= 0 && ring < days) {
-        const from = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60
+        const from = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + (grouping.mode === 'genre' ? d.getMilliseconds() / 60_000 : 0)
         const to = Math.min(MINUTES, from + (end - t) / 60_000)
-        m.ring[m.count] = ring
-        m.from[m.count] = from
-        m.to[m.count] = to
-        m.slot[m.count] = slot
-        m.play[m.count] = i
+        let cursor = from
+        const members = memberships[i]
+        members.forEach((member, memberIndex) => {
+          const next = memberIndex === members.length - 1 ? to : cursor + (to - from) * member.weight
+          m.ring[m.count] = ring
+          m.from[m.count] = cursor
+          m.to[m.count] = next
+          m.slot[m.count] = p.kind === 'track' ? (slotOf.get(member.name) ?? SLOT_OTHER) : SLOT_PODCAST
+          m.play[m.count] = i
+          m.count++
+          cursor = next
+        })
         m.dayMinutes[ring] += to - from
-        m.count++
       }
       t = end
     }

@@ -50,6 +50,7 @@ export const POSTER_DESIGN_SIZES: Partial<Record<PosterDesign, PosterSize[]>> = 
 }
 
 export interface PosterData {
+  grouping?: 'artist' | 'genre'
   /** "2024" or "2023–2025" */
   period: string
   /** "every day of 2024" */
@@ -309,7 +310,7 @@ function placeRecord(ctx: CanvasRenderingContext2D, data: PosterData, x: number,
     colors: data.recordColors,
     focus: null,
     title: data.recordTitle,
-    subtitle: `${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ARTISTS`,
+    subtitle: `${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ${data.grouping === 'genre' ? 'GENRES' : 'ARTISTS'}`,
     labelColor: accent,
     sheen: true,
     ink: p.muted,
@@ -727,8 +728,8 @@ function macroPoster(ctx: CanvasRenderingContext2D, data: PosterData, W: number,
   fitText(ctx, data.subtitle, tx, at, tw, 4 * u, `italic {px}px ${SERIF}`)
   at += stack[3]
   spacing(ctx, '0.14em')
-  measureFit(ctx, `${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ARTISTS`, tw, 1.35 * u, `600 {px}px ${MONO}`)
-  ctx.fillText(`${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ARTISTS`, tx, at)
+  measureFit(ctx, `${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ${data.grouping === 'genre' ? 'GENRES' : 'ARTISTS'}`, tw, 1.35 * u, `600 {px}px ${MONO}`)
+  ctx.fillText(`${formatNumber(data.stats.hours)} HRS  ·  ${formatNumber(data.stats.artists)} ${data.grouping === 'genre' ? 'GENRES' : 'ARTISTS'}`, tx, at)
   spacing(ctx, '0px')
 
   // A key to the colors in the far corner, mostly over bare paper past the rim
@@ -1062,7 +1063,7 @@ function footer(
   ctx.fillStyle = p.muted
   ctx.font = `600 ${1.45 * u}px ${MONO}`
   spacing(ctx, '0.22em')
-  ctx.fillText('TRACKLIST · TOP ARTISTS', pad, at.listHeadY - 0.9 * u)
+  ctx.fillText(data.grouping === 'genre' ? 'TRACKLIST · TOP GENRES' : 'TRACKLIST · TOP ARTISTS', pad, at.listHeadY - 0.9 * u)
   ctx.textAlign = 'right'
   ctx.fillText('HOURS', W - pad, at.listHeadY - 0.9 * u)
   spacing(ctx, '0px')
@@ -1106,7 +1107,7 @@ function footer(
   ctx.textAlign = 'left'
   ctx.fillStyle = p.ink
   spacing(ctx, '0.12em')
-  const stats = `${formatNumber(data.stats.hours)} HOURS  ·  ${formatNumber(data.stats.streams)} STREAMS  ·  ${formatNumber(data.stats.artists)} ARTISTS  ·  PEAK TIME ${data.stats.peak.toUpperCase()}`
+  const stats = `${formatNumber(data.stats.hours)} HOURS  ·  ${formatNumber(data.stats.streams)} STREAMS  ·  ${formatNumber(data.stats.artists)} ${data.grouping === 'genre' ? 'GENRES' : 'ARTISTS'}  ·  PEAK TIME ${data.stats.peak.toUpperCase()}`
   measureFit(ctx, stats, W - 2 * pad, 1.7 * u, `600 {px}px ${MONO}`)
   ctx.fillText(stats, pad, at.statsY)
   spacing(ctx, '0px')
@@ -1118,8 +1119,13 @@ function footer(
   const markW = ctx.measureText(mark).width
   spacing(ctx, '0px')
   ctx.fillStyle = p.muted
-  measureFit(ctx, CAPTIONS[design], W - 2 * pad - markW - 2 * u, 1.3 * u, `400 {px}px ${MONO}`)
-  ctx.fillText(CAPTIONS[design], pad, at.captionY)
+  const caption = data.grouping === 'genre'
+    ? design === 'constellation'
+      ? 'Stars are genres, sized by hours. Lines link genres of songs played back to back.'
+      : CAPTIONS[design].replaceAll('artists', 'genres').replaceAll('artist', 'genre')
+    : CAPTIONS[design]
+  measureFit(ctx, caption, W - 2 * pad - markW - 2 * u, 1.3 * u, `400 {px}px ${MONO}`)
+  ctx.fillText(caption, pad, at.captionY)
   ctx.textAlign = 'right'
   ctx.font = `700 ${1.3 * u}px ${MONO}`
   spacing(ctx, '0.2em')

@@ -2,6 +2,7 @@ import react from '@vitejs/plugin-react'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { createServer, defineConfig, type Plugin } from 'vite'
+import { genreCatalogue } from './scripts/genre-catalogue.ts'
 
 /**
  * Locks the built page down so the "nothing is uploaded" promise is enforced by
@@ -28,19 +29,24 @@ const CSP = [
  * The CSP is the same one as the meta tag, plus the directives a meta tag can't carry
  * (frame-ancestors). On hosts that ignore _headers, the meta tag still applies.
  */
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': `${CSP}; frame-ancestors 'none'`,
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=(), interest-cohort=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+}
+
 const HEADERS = `/*
-  Content-Security-Policy: ${CSP}; frame-ancestors 'none'
-  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
-  X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
-  Referrer-Policy: no-referrer
-  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=(), interest-cohort=()
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Resource-Policy: same-origin
+${Object.entries(SECURITY_HEADERS).map(([name, value]) => `  ${name}: ${value}`).join('\n')}
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 `
+
 
 function contentSecurityPolicy(): Plugin {
   return {
@@ -90,5 +96,5 @@ function prerenderLanding(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   base: './',
-  plugins: [react(), contentSecurityPolicy(), prerenderLanding()],
+  plugins: [genreCatalogue(), react(), contentSecurityPolicy(), prerenderLanding()],
 })

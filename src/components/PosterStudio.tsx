@@ -307,10 +307,10 @@ export function PosterStudio({ data, design, onDesign }: Props) {
   // Says where the color comes from, or offers the way back to it (shorter on a phone's card)
   const accentNote = (short: boolean) =>
     accentPick === null ? (
-      short ? 'Your #1 artist’s' : 'From your #1 artist, so it changes with the year'
+      short ? `Your #1 ${data.grouping ?? 'artist'}’s` : `From your #1 ${data.grouping ?? 'artist'}, so it changes with the year`
     ) : (
       <button type="button" className="studio__reset" onClick={() => setAccentPick(null)}>
-        {short ? 'Use #1 artist’s' : 'Use my #1 artist’s color'}
+        {short ? `Use #1 ${data.grouping ?? 'artist'}’s` : `Use my #1 ${data.grouping ?? 'artist'}’s color`}
       </button>
     )
   const accentRow = (
@@ -320,7 +320,7 @@ export function PosterStudio({ data, design, onDesign }: Props) {
           key={color}
           type="button"
           className="studio__accent"
-          aria-label={`${ACCENT_NAMES[SERIES.indexOf(color)] ?? 'Gray'}${color === yearAccent ? ', your #1 artist’s color' : ''}`}
+          aria-label={`${ACCENT_NAMES[SERIES.indexOf(color)] ?? 'Gray'}${color === yearAccent ? `, your #1 ${data.grouping ?? 'artist'}’s color` : ''}`}
           aria-pressed={activeAccent === color}
           onClick={() => pickAccent(color)}
         >

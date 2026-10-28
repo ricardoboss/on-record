@@ -224,6 +224,15 @@ function dice(rand: () => number): Dice {
   }
 }
 
+/** The demo's genres come from the same seeded catalogue as its invented songs. */
+export function generateSampleGenreMap(): ReadonlyMap<string, readonly string[]> {
+  const names = ['electronic', 'folk', 'pop', 'hip hop', 'indie rock']
+  const artists = buildArtists(dice(mulberry32(42)))
+  return new Map(artists.flatMap(a => a.albums.flatMap(album => album.tracks.map(track =>
+    [track.uri, [names[a.genre]]] as const,
+  ))))
+}
+
 export function generateSampleRecords(): RawStreamRecord[] {
   const w = dice(mulberry32(42))
   const { rand, chance, between, int } = w

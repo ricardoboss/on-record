@@ -10,6 +10,13 @@ export function formatNumber(n: number): string {
   return number.format(Math.round(n))
 }
 
+const weightedNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
+
+/** Weighted contributions can be fractions of a play, not rounded whole starts. */
+export function formatWeightedNumber(n: number): string {
+  return n > 0 && n < 0.005 ? '<0.01' : weightedNumber.format(n)
+}
+
 export function formatHours(ms: number): string {
   return `${formatNumber(ms / 3_600_000)} hrs`
 }

@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, t
 import { DAY_START, WINDOWS, dayNight, daypartLeans, formatTimes, leanSentence, strongestLean, type DaypartLean } from '../data/dayparts'
 import type { Daypart, HourSlot } from '../data/insights'
 import { formatDuration, formatHour, formatPercent } from '../lib/format'
+import { useGrouping } from '../lib/grouping'
 import { useMediaQuery, useSize } from '../lib/hooks'
 import { HEAT, SERIES } from '../lib/palette'
 import { isHover, leaveUnlessTouch } from '../lib/pointer'
@@ -244,11 +245,12 @@ function emphasize(text: string, name: string | null): ReactNode {
 /** The top artist at an hour is only the most played, not most of it, so the copy says "more than anyone" */
 function hourLine(slot: HourSlot): { text: string; name: string | null } {
   if (!slot.ms) return { text: `Nothing at ${formatHour(slot.hour)}.`, name: null }
-  return { text: `At ${formatHour(slot.hour)}: ${formatDuration(slot.ms)}, ${slot.top} more than anyone.`, name: slot.top }
+  return { text: `At ${formatHour(slot.hour)}: ${formatDuration(slot.ms)}, ${slot.top} more than anything else.`, name: slot.top }
 }
 
 function ClockCard({ hours, grid, plays }: { hours: HourSlot[]; grid: number[][]; plays: Play[] }) {
-  const leans = useMemo(() => daypartLeans(plays), [plays])
+  const grouping = useGrouping()
+  const leans = useMemo(() => daypartLeans(plays, grouping), [plays, grouping])
   const lead = strongestLean(leans)
   const split = dayNight(hours.map((h) => h.ms))
   const peak = hours.reduce((best, h) => (h.ms > best.ms ? h : best), hours[0])
@@ -649,13 +651,14 @@ function DotMatrix({ grid }: { grid: number[][] }) {
 }
 
 export function ClockTable({ hours }: { hours: HourSlot[] }) {
+  const { singular } = useGrouping()
   return (
     <table>
       <thead>
         <tr>
           <th>Hour</th>
           <th className="num">Listening time</th>
-          <th>Top artist</th>
+          <th>Top {singular}</th>
         </tr>
       </thead>
       <tbody>
